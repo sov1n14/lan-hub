@@ -1,0 +1,78 @@
+.holdem-root { display: flex; flex-direction: column; width: 100%; }
+
+.holdem-table {
+  flex: 1;
+  background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-2) 100%);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.holdem-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.holdem-pot { color: #fff; font-weight: 700; font-size: 1.05rem; background: rgba(0,0,0,0.3); padding: 4px 14px; border-radius: 999px; }
+.holdem-community { display: flex; gap: 6px; min-height: 76px; }
+
+.card {
+  width: 46px; height: 64px; border-radius: 6px; background: #fefefe;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 1.2rem; color: #1a1a1a;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+}
+.card.red { color: #d1352b; }
+.card.back { background: repeating-linear-gradient(45deg, #2b5aa8, #2b5aa8 6px, #24488a 6px, #24488a 12px); border: 2px solid #16305e; }
+.card.small { width: 34px; height: 48px; font-size: 0.95rem; }
+
+.holdem-seats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; width: 100%; }
+
+.seat {
+  background: rgba(0,0,0,0.35);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 150px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seat.turn { border-color: var(--warn); box-shadow: 0 0 12px rgba(226,176,76,0.6); }
+.seat.folded { opacity: 0.4; }
+.seat.you { background: rgba(76,201,160,0.18); }
+.seat .seat-name { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.seat .seat-chips { font-size: 0.85rem; color: #cfe; opacity: 0.9; }
+.seat .seat-bet { font-size: 0.8rem; color: var(--warn); }
+.seat .seat-cards { display: flex; gap: 4px; }
+.seat .tag { font-size: 0.7rem; background: rgba(255,255,255,0.15); border-radius: 6px; padding: 1px 6px; }
+.seat .dealer-btn { background: #fff; color: #111; border-radius: 50%; width: 18px; height: 18px; font-size: 0.65rem; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
+
+.holdem-log {
+  width: 100%; max-width: 480px; max-height: 90px; overflow-y: auto;
+  background: rgba(0,0,0,0.25); border-radius: 8px; padding: 6px 10px;
+  font-size: 0.78rem; color: #dfe; line-height: 1.5;
+}
+
+.holdem-controls {
+  padding: 14px 20px; background: var(--panel); border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.holdem-controls .spacer { flex: 1; }
+.holdem-controls input[type=range] { width: 160px; }
+.holdem-controls .bet-amount { min-width: 54px; text-align: center; font-weight: 700; }
+
+.holdem-result {
+  background: rgba(0,0,0,0.4); color: #fff; padding: 10px 16px; border-radius: 10px;
+  text-align: center; font-size: 0.9rem;
+}
+
+.holdem-waiting { color: var(--text-dim); text-align: center; padding: 30px; }
+
+.countdown-label { color: var(--text-dim); font-size: 0.85rem; }

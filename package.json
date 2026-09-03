@@ -1,0 +1,13 @@
+{
+  "name": "office-games",
+  "version": "1.0.0",
+  "private": true,
+  "description": "辦公室小遊戲大廳 - 同 WiFi 開房間玩",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

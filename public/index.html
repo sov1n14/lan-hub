@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>辦公室小遊戲</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div id="toast-container"></div>
+
+<div id="app">
+
+  <div class="topbar">
+    <h1>🎮 辦公室小遊戲</h1>
+    <div class="nick-box">
+      <span class="conn-dot" id="conn-dot"></span>
+      暱稱
+      <input id="nickname-input" maxlength="20" placeholder="你的名字" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- ============ 大廳 ============ -->
+  <div id="lobby-view">
+    <div class="lobby-header">
+      <h2>目前開著的房間</h2>
+      <button id="create-room-btn">＋ 開新房間</button>
+    </div>
+    <div class="room-grid" id="room-grid"></div>
+    <div class="empty-hint" id="empty-hint" hidden>目前沒有房間，開第一個吧！</div>
+  </div>
+
+  <!-- ============ 房間 ============ -->
+  <div id="room-view" hidden>
+
+    <!-- 偽裝頁面：預設顯示這個，蓋住整個房間畫面（含上方列） -->
+    <div id="stealth-decoy">
+      <div class="decoy-page">
+        <div class="decoy-titlebar">📄 規格文件</div>
+        <h1>產品規格文件 v1.4</h1>
+        <div class="decoy-meta">
+          最後更新：2026/09/02<span class="decoy-badge" id="decoy-badge" hidden></span>
+        </div>
+        <hr />
+        <h2>2. 功能需求</h2>
+        <p>使用者可於清單頁面設定篩選條件，系統將依所選條件即時更新顯示結果，並保留使用者上次操作的篩選狀態，供下次進入頁面時沿用。</p>
+        <h3>2.1 篩選條件</h3>
+        <p>篩選條件包含日期範圍、狀態、負責人三個維度，彼此為 AND 關係；當使用者未選擇任何條件時，預設顯示全部資料，並依建立時間倒序排列。</p>
+        <h3>2.2 排序規則</h3>
+        <p>清單預設依「最後更新時間」由新到舊排序，使用者可點擊欄位標題切換排序方式；排序狀態需保留於當前工作階段，重新整理頁面後維持不變。</p>
+        <table class="decoy-table">
+          <thead><tr><th>項目</th><th>說明</th><th>優先級</th></tr></thead>
+          <tbody>
+            <tr><td>篩選條件保留</td><td>切頁後維持使用者選擇</td><td>High</td></tr>
+            <tr><td>匯出 CSV</td><td>依目前篩選結果匯出</td><td>Medium</td></tr>
+            <tr><td>批次操作</td><td>可勾選多筆進行狀態變更</td><td>Low</td></tr>
+          </tbody>
+        </table>
+        <p class="decoy-footer">（此文件為草稿版本，內容可能隨需求確認調整）</p>
+      </div>
+    </div>
+
+    <!-- 真正的房間畫面 -->
+    <div id="room-real" hidden>
+      <div class="room-topbar">
+        <div>
+          <span class="room-name" id="room-name-label"></span>
+          <span class="pill" id="room-role-label"></span>
+        </div>
+        <div>
+          <span class="pill" id="room-count-label"></span>
+          <button class="secondary" id="leave-room-btn">離開房間</button>
+        </div>
+      </div>
+      <div class="spectator-banner" id="spectator-banner" hidden>👀 你正在旁觀這場遊戲</div>
+      <div id="game-mount"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ============ 開房 modal ============ -->
+<div class="modal-backdrop" id="create-modal" hidden>
+  <div class="modal">
+    <h3>開新房間</h3>
+    <label>遊戲
+      <select id="create-gametype"></select>
+    </label>
+    <label>房間名稱
+      <input id="create-roomname" maxlength="30" placeholder="例如：午休來一局" autocomplete="off" />
+    </label>
+    <label>最多幾人參加
+      <input id="create-maxplayers" type="number" min="2" max="8" value="6" />
+    </label>
+    <div class="row">
+      <button class="secondary" id="create-cancel-btn">取消</button>
+      <button id="create-confirm-btn">開房</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
