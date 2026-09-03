@@ -33,7 +33,7 @@ const MIME = {
 };
 
 const GAME_CATALOG = [
-  { gameType: 'texas-holdem', name: '德州撲克', minPlayers: 2, maxPlayersLimit: 8, defaultMaxPlayers: 6 },
+  { gameType: 'texas-holdem', name: '德州撲克', minPlayers: 2, maxPlayersLimit: 10, defaultMaxPlayers: 6 },
 ];
 
 // --- Static file server ---
@@ -282,7 +282,10 @@ function handleMessage(client, msg) {
         if (client.role === 'host') room.hostNickname = nickname;
         if (room.players.has(client.id)) room.players.get(client.id).nickname = nickname;
         if (room.spectators.has(client.id)) room.spectators.get(client.id).nickname = nickname;
+        const ep = room.gameState?.players.find(p => p.id === client.id);
+        if (ep) ep.nickname = nickname;
         broadcastRoomRoster(room);
+        if (room.gameState) broadcastGameState(room);
         broadcastLobby();
       }
       break;
@@ -431,7 +434,6 @@ function handleMessage(client, msg) {
       broadcastRoomRoster(room);
       if (room.gameState && room.started) { checkTimers(room); broadcastGameState(room); }
       broadcastLobby();
-      if (room.started && room.players.size <= 1) closeRoom(room, '其他玩家皆已離開，房間關閉');
       break;
     }
     default: break;

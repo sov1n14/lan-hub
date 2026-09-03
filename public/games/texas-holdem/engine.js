@@ -117,7 +117,14 @@ export function createGame({ smallBlind = SMALL_BLIND, bigBlind = BIG_BLIND, sta
 }
 
 export function addPlayer(state, id, nickname, buyIn = STARTING_CHIPS) {
-  if (state.players.some((p) => p.id === id)) return;
+  const existing = state.players.find(p => p.id === id);
+  if (existing) {
+    existing.connected = true;
+    existing.nickname = nickname;
+    if (existing.chips <= 0) existing.chips = buyIn;
+    existing.sittingOut = state.stage !== 'waiting';
+    return;
+  }
   state.players.push({
     id, nickname, chips: buyIn,
     holeCards: [], folded: true, allIn: false,
@@ -141,6 +148,7 @@ export function removePlayer(state, id) {
   }
 
   p.connected = false;
+  p.sittingOut = true;
   if (!p.folded) {
     p.folded = true;
     log(state, `${p.nickname} 離線，自動蓋牌`);
@@ -177,7 +185,7 @@ function purgeDisconnected(state) {
 }
 
 export function readyToStart(state) {
-  return state.players.filter((p) => p.chips > 0).length >= 2;
+  return state.players.filter((p) => !p.sittingOut && p.chips > 0).length >= 2;
 }
 
 function log(state, msg) {
@@ -222,7 +230,7 @@ function postBet(state, player, amount) {
 
 export function startHand(state) {
   purgeDisconnected(state);
-  const eligible = state.players.filter((p) => p.chips > 0);
+  const eligible = state.players.filter((p) => !p.sittingOut && p.chips > 0);
   if (eligible.length < 2) return { ok: false, error: '至少需要 2 位有籌碼的玩家' };
 
   for (const p of state.players) {
@@ -246,6 +254,7 @@ export function startHand(state) {
 
   state.dealerIdx = nextIndexWhere(state, state.dealerIdx === -1 ? state.players.length - 1 : state.dealerIdx, isSeated);
   const order = seatOrderFromDealer(state);
+  if (order.length < 2) return { ok: false, error: '至少需要 2 位在座玩家' };
 
   const sbPlayer = order.length === 2 ? order[0] : order[1];
   const bbPlayer = order.length === 2 ? order[1] : order[2];

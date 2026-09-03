@@ -91,19 +91,29 @@
       <input id="create-roomname" maxlength="30" placeholder="例如：午休來一局" autocomplete="off" />
     </label>
     <label>最多幾人參加
-      <input id="create-maxplayers" type="number" min="2" max="8" value="6" />
+      <input id="create-maxplayers" type="number" min="2" max="10" value="10" />
     </label>
     <label>大盲金額
-      <input id="create-bigblind" type="number" min="2" max="1000" value="50" />
+      <input id="create-bigblind" type="number" min="10" max="1000" value="50" step="10" />
     </label>
     <label>起始籌碼
-      <input id="create-startchips" type="number" min="100" max="100000" value="2000" />
+      <input id="create-startchips" type="number" min="100" max="100000" value="2000" step="10" />
     </label>
-    <label class="checkbox-label"><input id="create-rebuy" type="checkbox" /> 允許 Rebuy</label>
+    <label class="toggle-row"><span>允許重新買入</span><input id="create-rebuy" type="checkbox" class="toggle" /></label>
     <div class="row">
       <button class="secondary" id="create-cancel-btn">取消</button>
       <button id="create-confirm-btn">開房</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="nickname-modal">
+  <div class="modal">
+    <h3>歡迎！請先設定暱稱</h3>
+    <label>你的暱稱
+      <input id="nickname-modal-input" maxlength="20" placeholder="輸入暱稱" autocomplete="off" />
+    </label>
+    <button id="nickname-modal-confirm" disabled>確定</button>
   </div>
 </div>
 

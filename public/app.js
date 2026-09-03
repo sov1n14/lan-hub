@@ -175,6 +175,21 @@ function escapeHtml(s) {
 // ---------- 開房 modal ----------
 
 els.createBtn.addEventListener('click', () => { els.createModal.hidden = false; });
+for (const input of [els.createMaxplayers, els.createBigblind, els.createStartchips]) {
+  input.addEventListener('keydown', (ev) => {
+    if (['e', 'E', '.', '+', '-'].includes(ev.key)) ev.preventDefault();
+  });
+  input.addEventListener('change', () => {
+    const v = parseInt(input.value, 10);
+    if (isNaN(v)) { input.value = input.defaultValue; return; }
+    const min = Number(input.min), max = Number(input.max);
+    input.value = Math.max(min, Math.min(max, v));
+  });
+}
+els.createMaxplayers.addEventListener('input', () => {
+  const v = parseInt(els.createMaxplayers.value, 10);
+  if (!isNaN(v) && v > 10) els.createMaxplayers.value = 10;
+});
 els.createCancelBtn.addEventListener('click', () => { els.createModal.hidden = true; });
 els.createConfirmBtn.addEventListener('click', () => {
   sendMsg({
@@ -199,18 +214,34 @@ els.nicknameInput.addEventListener('change', () => {
   sendMsg({ type: 'set_nickname', nickname: nick });
 });
 
-// ---------- 偷玩模式：預設顯示假頁面，切到牌桌後閒置一陣子會自動切回去 ----------
+// 首次訪客強制註冊暱稱
+const nicknameModal = document.getElementById('nickname-modal');
+const nicknameModalInput = document.getElementById('nickname-modal-input');
+const nicknameModalConfirm = document.getElementById('nickname-modal-confirm');
 
-const STEALTH_IDLE_MS = 25000;
-let stealthIdleTimer = null;
-
-function clearStealthIdleTimer() {
-  if (stealthIdleTimer) clearTimeout(stealthIdleTimer);
-  stealthIdleTimer = null;
+if (!localStorage.getItem('og_nickname')) {
+  nicknameModal.hidden = false;
+} else {
+  nicknameModal.hidden = true;
 }
 
+nicknameModalInput.addEventListener('input', () => {
+  nicknameModalConfirm.disabled = !nicknameModalInput.value.trim();
+});
+function confirmNicknameModal() {
+  const nick = nicknameModalInput.value.trim();
+  if (!nick) return;
+  localStorage.setItem('og_nickname', nick);
+  els.nicknameInput.value = nick;
+  sendMsg({ type: 'set_nickname', nickname: nick });
+  nicknameModal.hidden = true;
+}
+nicknameModalConfirm.addEventListener('click', confirmNicknameModal);
+nicknameModalInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') confirmNicknameModal(); });
+
+// ---------- 偷玩模式：F9 手動切換假文件 ----------
+
 function showDecoy() {
-  clearStealthIdleTimer();
   els.stealthDecoy.hidden = false;
   els.roomReal.hidden = true;
 }
@@ -218,24 +249,15 @@ function showDecoy() {
 function showGame() {
   els.stealthDecoy.hidden = true;
   els.roomReal.hidden = false;
-  scheduleStealthIdleHide();
-}
-
-function scheduleStealthIdleHide() {
-  clearStealthIdleTimer();
-  stealthIdleTimer = setTimeout(showDecoy, STEALTH_IDLE_MS);
 }
 
 function toggleStealth() {
-  if (els.roomView.hidden) return; // 不在房間裡就不用管
+  if (els.roomView.hidden) return;
   if (els.stealthDecoy.hidden) showDecoy();
   else showGame();
 }
 
 els.stealthDecoy.addEventListener('click', showGame);
-els.roomReal.addEventListener('click', scheduleStealthIdleHide);
-els.roomReal.addEventListener('input', scheduleStealthIdleHide);
-els.roomReal.addEventListener('keydown', scheduleStealthIdleHide);
 
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'F9') return;
@@ -284,8 +306,7 @@ function notifyTurn(isYourTurn) {
 }
 
 function resetStealth() {
-  clearStealthIdleTimer();
-  showDecoy();
+  showGame();
   setFavicon(false);
   els.decoyBadge.hidden = true;
 }
