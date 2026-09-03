@@ -167,3 +167,6 @@ input, select {
 .decoy-table th, .decoy-table td { border: 1px solid #e2e2e2; padding: 8px 10px; text-align: left; }
 .decoy-table th { background: #fafafa; color: #555; }
 .decoy-footer { color: #9aa1a8; font-size: 0.8rem; margin-top: 24px; }
+
+.checkbox-label { display: flex; align-items: center; gap: 8px; }
+.checkbox-label input[type="checkbox"] { width: auto; }

@@ -1,24 +1,23 @@
-'use strict';
-/**
- * 辦公室小遊戲 - 大廳 + 房間中繼伺服器
- *
- * 這支伺服器只負責：
- *   1. 提供 public/ 底下的靜態檔案（大廳頁面、遊戲前端）
- *   2. 用 WebSocket 幫房間內的瀏覽器互相轉發訊息
- *
- * 遊戲規則本身完全不在伺服器上跑 —— 誰開房間、誰的瀏覽器分頁就是那個房間的
- * 「主機」，負責算牌局狀態，伺服器只是把訊息從 A 轉給 B。伺服器重開，所有
- * 房間狀態就消失（不需要資料庫，開玩即用）。
- */
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { WebSocket, WebSocketServer } from 'ws';
+import {
+  createGame, addPlayer, removePlayer, readyToStart,
+  startHand, applyAction, viewFor, rebuy,
+  STARTING_CHIPS, BIG_BLIND, SMALL_BLIND,
+} from './public/games/texas-holdem/engine.js';
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const WebSocket = require('ws');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3131;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const ACTION_TIMEOUT_MS = 30_000;
+const NEXT_HAND_DELAY_MS = 5_000;
+const RECONNECT_GRACE_MS = 60_000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -26,55 +25,43 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
 };
 
 const GAME_CATALOG = [
   { gameType: 'texas-holdem', name: '德州撲克', minPlayers: 2, maxPlayersLimit: 8, defaultMaxPlayers: 6 },
 ];
 
-// ---------- 靜態檔案伺服器 ----------
-
+// --- Static file server ---
 const server = http.createServer((req, res) => {
   let reqPath = decodeURIComponent(req.url.split('?')[0]);
   if (reqPath === '/') reqPath = '/index.html';
   const filePath = path.join(PUBLIC_DIR, reqPath);
-
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
-    res.end('Forbidden');
-    return;
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) {
+    res.writeHead(403); res.end('Forbidden'); return;
   }
-
   fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not found');
-      return;
-    }
+    if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); return; }
     const ext = path.extname(filePath);
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
     res.end(data);
   });
 });
 
-// ---------- WebSocket 中繼 ----------
-
-const wss = new WebSocket.Server({ server });
-
-/** @type {Map<string, Client>} */
+// --- WebSocket ---
+const wss = new WebSocketServer({ server });
 const clients = new Map();
-/** @type {Map<string, Room>} */
 const rooms = new Map();
-
 let nextClientId = 1;
 let nextRoomId = 1;
 
 function send(ws, msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
-
 function sendToClient(clientId, msg) {
   const c = clients.get(clientId);
   if (c) send(c.ws, msg);
@@ -82,13 +69,9 @@ function sendToClient(clientId, msg) {
 
 function roomSummary(room) {
   return {
-    id: room.id,
-    name: room.name,
-    gameType: room.gameType,
-    players: room.players.size,
-    maxPlayers: room.maxPlayers,
-    spectators: room.spectators.size,
-    hostNickname: room.hostNickname,
+    id: room.id, name: room.name, gameType: room.gameType,
+    players: room.players.size, maxPlayers: room.maxPlayers,
+    spectators: room.spectators.size, hostNickname: room.hostNickname,
     started: room.started,
   };
 }
@@ -101,60 +84,69 @@ function broadcastLobby() {
 }
 
 function roomMemberIds(room) {
-  return [room.hostId, ...room.players.keys(), ...room.spectators.keys()];
+  return [...new Set([room.hostId, ...room.players.keys(), ...room.spectators.keys()])];
 }
 
 function broadcastRoomRoster(room) {
   const roster = {
     type: 'roster',
     room: roomSummary(room),
-    players: [...room.players.entries()].map(([id, p]) => ({ id, nickname: p.nickname, seat: p.seat })),
+    players: [...room.players.entries()].map(([id, p]) => ({ id, nickname: p.nickname })),
     spectators: [...room.spectators.entries()].map(([id, s]) => ({ id, nickname: s.nickname })),
   };
   for (const id of roomMemberIds(room)) sendToClient(id, roster);
 }
 
-function closeRoom(room, reason) {
-  rooms.delete(room.id);
-  for (const id of roomMemberIds(room)) {
-    const c = clients.get(id);
-    if (c) {
-      c.roomId = null;
-      c.role = null;
-      send(c.ws, { type: 'room_closed', reason });
-    }
+function broadcastGameState(room) {
+  if (!room.gameState) return;
+  for (const [id] of room.players) sendToClient(id, { type: 'state_update', payload: viewFor(room.gameState, id) });
+  const sv = viewFor(room.gameState, '__spectator__');
+  for (const [id] of room.spectators) sendToClient(id, { type: 'state_update', payload: sv });
+}
+
+// --- Timers ---
+function scheduleActionTimer(room) {
+  clearActionTimer(room);
+  const gs = room.gameState;
+  if (!gs || ['waiting', 'showdown', 'hand_over'].includes(gs.stage)) return;
+  gs.turnDeadline = Date.now() + ACTION_TIMEOUT_MS;
+  room.actionTimer = setTimeout(() => {
+    room.actionTimer = null;
+    const player = gs.players[gs.toActIdx];
+    if (!player || player.folded || player.allIn) return;
+    applyAction(gs, player.id, 'fold');
+    checkTimers(room);
+    broadcastGameState(room);
+  }, ACTION_TIMEOUT_MS);
+}
+function clearActionTimer(room) {
+  if (room.actionTimer) { clearTimeout(room.actionTimer); room.actionTimer = null; }
+  if (room.gameState) room.gameState.turnDeadline = null;
+}
+function scheduleNextHandTimer(room) {
+  if (room.nextHandTimer) return;
+  room.nextHandTimer = setTimeout(() => {
+    room.nextHandTimer = null;
+    if (!room.gameState || !readyToStart(room.gameState)) return;
+    const res = startHand(room.gameState);
+    if (!res.ok) return;
+    scheduleActionTimer(room);
+    broadcastGameState(room);
+    broadcastLobby();
+  }, NEXT_HAND_DELAY_MS);
+}
+function checkTimers(room) {
+  const gs = room.gameState;
+  if (!gs) return;
+  if (['hand_over', 'showdown'].includes(gs.stage)) {
+    clearActionTimer(room);
+    if (readyToStart(gs)) scheduleNextHandTimer(room);
+  } else {
+    scheduleActionTimer(room);
   }
-  broadcastLobby();
 }
 
-// 房主主動離開時，優先把房主身分交給下一位還在座的玩家（依加入順序），
-// 房間不因此關閉；真的沒人可以接手才會走 closeRoom。
-function tryHostHandoff(room, leavingClient, handoffState) {
-  const candidateId = [...room.players.keys()].find((id) => id !== leavingClient.id);
-  if (!candidateId) return false;
-  const candidate = clients.get(candidateId);
-  if (!candidate) return false;
-
-  room.hostId = candidateId;
-  room.hostNickname = candidate.nickname;
-  room.players.delete(leavingClient.id);
-  candidate.role = 'host';
-
-  leavingClient.roomId = null;
-  leavingClient.role = null;
-
-  send(candidate.ws, {
-    type: 'host_handoff',
-    state: handoffState,
-    you: { id: candidate.id, nickname: candidate.nickname },
-  });
-
-  broadcastRoomRoster(room);
-  return true;
-}
-
-// 房間裡如果已經有人用同一個暱稱（常見於同一台電腦開多分頁測試、或忘記改名），
-// 自動補上 (2)(3)... 讓每個座位看起來是不同的人。
+// --- Room lifecycle ---
 function uniqueDisplayName(room, desired, excludeClientId) {
   const taken = new Set();
   if (room.hostId !== excludeClientId) taken.add(room.hostNickname);
@@ -166,6 +158,17 @@ function uniqueDisplayName(room, desired, excludeClientId) {
   return `${desired} (${n})`;
 }
 
+function closeRoom(room, reason) {
+  clearActionTimer(room);
+  if (room.nextHandTimer) { clearTimeout(room.nextHandTimer); room.nextHandTimer = null; }
+  rooms.delete(room.id);
+  for (const id of roomMemberIds(room)) {
+    const c = clients.get(id);
+    if (c) { c.roomId = null; c.role = null; send(c.ws, { type: 'room_closed', reason }); }
+  }
+  broadcastLobby();
+}
+
 function leaveCurrentRoom(client, opts = {}) {
   const room = rooms.get(client.roomId);
   client.roomId = null;
@@ -173,179 +176,265 @@ function leaveCurrentRoom(client, opts = {}) {
   client.role = null;
   if (!room) return;
 
-  if (wasRole === 'host') {
-    closeRoom(room, opts.reason || '主機已離開，房間關閉');
-    return;
-  }
-  if (wasRole === 'player') {
+  if (wasRole === 'player' || wasRole === 'host') {
     room.players.delete(client.id);
+    if (room.gameState) { removePlayer(room.gameState, client.id); clearActionTimer(room); }
   } else if (wasRole === 'spectator') {
     room.spectators.delete(client.id);
   }
-  sendToClient(room.hostId, { type: 'peer_left', clientId: client.id, nickname: client.nickname, role: wasRole });
+
+  if (wasRole === 'host') {
+    const newHostId = [...room.players.keys()][0];
+    if (newHostId) {
+      const nh = clients.get(newHostId);
+      room.hostId = newHostId;
+      room.hostNickname = nh.nickname;
+      nh.role = 'host';
+      sendToClient(newHostId, { type: 'promoted_to_host' });
+    } else {
+      closeRoom(room, opts.disconnect ? '房主已離線，沒有其他玩家可接手，房間關閉' : '房主已離開，沒有其他玩家可接手，房間關閉');
+      return;
+    }
+  }
+
+  if (room.started && room.players.size <= 1) {
+    closeRoom(room, '其他玩家皆已離開，房間關閉');
+    return;
+  }
+
   broadcastRoomRoster(room);
+  if (room.gameState && room.started) { checkTimers(room); broadcastGameState(room); }
   broadcastLobby();
 }
 
+// --- S3 Reconnection ---
+function handleDisconnect(client) {
+  if (!client.connected) return;
+  client.connected = false;
+  const room = rooms.get(client.roomId);
+  if (room && (client.role === 'player' || client.role === 'host')) {
+    const ep = room.gameState?.players.find(p => p.id === client.id);
+    room.disconnectedPlayers.set(client.id, { nickname: client.nickname, chips: ep?.chips ?? 0 });
+  }
+  leaveCurrentRoom(client, { disconnect: true });
+  client.graceTimer = setTimeout(() => {
+    clients.delete(client.id);
+    for (const r of rooms.values()) r.disconnectedPlayers.delete(client.id);
+  }, RECONNECT_GRACE_MS);
+}
+
+function handleReconnectRoom(client) {
+  for (const [roomId, room] of rooms) {
+    const saved = room.disconnectedPlayers.get(client.id);
+    if (!saved) continue;
+    room.disconnectedPlayers.delete(client.id);
+    if (room.players.size >= room.maxPlayers) break;
+    const nickname = uniqueDisplayName(room, saved.nickname, client.id);
+    room.players.set(client.id, { nickname });
+    client.roomId = roomId; client.role = 'player'; client.nickname = nickname;
+    if (room.gameState) addPlayer(room.gameState, client.id, nickname, saved.chips);
+    send(client.ws, { type: 'room_joined', roomId, role: 'player', you: { id: client.id, nickname }, room: roomSummary(room) });
+    broadcastRoomRoster(room);
+    if (room.gameState && room.started) broadcastGameState(room);
+    broadcastLobby();
+    return;
+  }
+  broadcastLobby();
+}
+
+// --- WebSocket connection handler ---
 wss.on('connection', (ws) => {
-  const id = 'c' + nextClientId++;
-  const client = { id, ws, nickname: '訪客' + id.slice(1), roomId: null, role: null };
-  clients.set(id, client);
-  send(ws, { type: 'welcome', clientId: id });
+  const tempId = 'c' + nextClientId++;
+  let client = { id: tempId, ws, nickname: '訪客' + tempId.slice(1), roomId: null, role: null, connected: true, graceTimer: null };
+  clients.set(tempId, client);
+  send(ws, { type: 'welcome', clientId: tempId });
   broadcastLobby();
 
   ws.on('message', (raw) => {
     let msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type === 'reconnect' && msg.clientId) {
+      const old = clients.get(msg.clientId);
+      if (old && !old.connected) {
+        if (old.graceTimer) clearTimeout(old.graceTimer);
+        old.ws = ws; old.connected = true; old.graceTimer = null;
+        clients.delete(tempId);
+        client = old;
+        send(ws, { type: 'welcome', clientId: old.id, reconnected: true });
+        handleReconnectRoom(old);
+        return;
+      }
     }
     handleMessage(client, msg);
   });
-
-  ws.on('close', () => {
-    leaveCurrentRoom(client, { reason: '主機已離開，房間關閉' });
-    clients.delete(id);
-    broadcastLobby();
-  });
+  ws.on('close', () => handleDisconnect(client));
 });
 
+// --- Message handler ---
 function handleMessage(client, msg) {
   switch (msg.type) {
     case 'set_nickname': {
-      client.nickname = String(msg.nickname || client.nickname).slice(0, 20);
+      const raw = String(msg.nickname || client.nickname).slice(0, 20);
       const room = rooms.get(client.roomId);
+      const nickname = room ? uniqueDisplayName(room, raw, client.id) : raw;
+      client.nickname = nickname;
       if (room) {
-        if (client.role === 'host') room.hostNickname = client.nickname;
-        if (room.players.has(client.id)) room.players.get(client.id).nickname = client.nickname;
-        if (room.spectators.has(client.id)) room.spectators.get(client.id).nickname = client.nickname;
+        if (client.role === 'host') room.hostNickname = nickname;
+        if (room.players.has(client.id)) room.players.get(client.id).nickname = nickname;
+        if (room.spectators.has(client.id)) room.spectators.get(client.id).nickname = nickname;
         broadcastRoomRoster(room);
         broadcastLobby();
       }
       break;
     }
-
     case 'list_rooms': {
       send(client.ws, { type: 'room_list', catalog: GAME_CATALOG, rooms: [...rooms.values()].map(roomSummary) });
       break;
     }
-
     case 'create_room': {
       if (client.roomId) return send(client.ws, { type: 'error', message: '你已經在房間裡了' });
-      const game = GAME_CATALOG.find((g) => g.gameType === msg.gameType);
+      const game = GAME_CATALOG.find(g => g.gameType === msg.gameType);
       if (!game) return send(client.ws, { type: 'error', message: '不支援的遊戲類型' });
-
-      const maxPlayers = Math.min(
-        Math.max(Number(msg.maxPlayers) || game.defaultMaxPlayers, game.minPlayers),
-        game.maxPlayersLimit
-      );
-
+      const maxPlayers = Math.min(Math.max(Number(msg.maxPlayers) || game.defaultMaxPlayers, game.minPlayers), game.maxPlayersLimit);
+      const bigBlind = Math.max(Number(msg.bigBlind) || BIG_BLIND, 2);
+      const smallBlind = Math.floor(bigBlind / 2);
+      const chips = Math.max(Number(msg.startingChips) || STARTING_CHIPS, bigBlind * 2);
+      const allowRebuy = !!msg.allowRebuy;
       const roomId = 'r' + nextRoomId++;
       const room = {
-        id: roomId,
-        gameType: game.gameType,
+        id: roomId, gameType: game.gameType,
         name: String(msg.name || `${client.nickname} 的房間`).slice(0, 30),
-        maxPlayers,
-        hostId: client.id,
-        hostNickname: client.nickname,
-        players: new Map([[client.id, { nickname: client.nickname, seat: 0 }]]),
-        spectators: new Map(),
-        started: false,
+        maxPlayers, hostId: client.id, hostNickname: client.nickname,
+        players: new Map([[client.id, { nickname: client.nickname }]]),
+        spectators: new Map(), started: false,
+        gameState: createGame({ smallBlind, bigBlind, startingChips: chips }),
+        settings: { bigBlind, smallBlind, startingChips: chips, allowRebuy },
+        disconnectedPlayers: new Map(), actionTimer: null, nextHandTimer: null,
       };
+      addPlayer(room.gameState, client.id, client.nickname, chips);
       rooms.set(roomId, room);
-      client.roomId = roomId;
-      client.role = 'host';
-
+      client.roomId = roomId; client.role = 'host';
       send(client.ws, { type: 'room_joined', roomId, role: 'host', you: { id: client.id, nickname: client.nickname }, room: roomSummary(room) });
       broadcastRoomRoster(room);
+      broadcastGameState(room);
       broadcastLobby();
       break;
     }
-
     case 'join_room': {
       if (client.roomId) return send(client.ws, { type: 'error', message: '你已經在房間裡了' });
       const room = rooms.get(msg.roomId);
       if (!room) return send(client.ws, { type: 'error', message: '房間不存在或已關閉' });
-
       let role = msg.as === 'spectator' ? 'spectator' : 'player';
       if (role === 'player' && room.players.size >= room.maxPlayers) role = 'spectator';
-      if (role === 'player' && room.started) role = 'spectator'; // 遊戲進行中，中途只能旁觀
-
-      // 同一台電腦開多個分頁測試、或暱稱剛好撞名時，自動加上 (2)(3)... 區分，
-      // 不然牌桌上會看起來像「大家都是同一個人」。
+      if (role === 'player' && room.started) role = 'spectator';
       const nickname = uniqueDisplayName(room, client.nickname, client.id);
       if (role === 'player') {
-        room.players.set(client.id, { nickname, seat: room.players.size });
+        room.players.set(client.id, { nickname });
+        if (room.gameState) addPlayer(room.gameState, client.id, nickname, room.settings.startingChips);
       } else {
         room.spectators.set(client.id, { nickname });
       }
-      client.roomId = room.id;
-      client.role = role;
-
+      client.roomId = room.id; client.role = role;
       send(client.ws, { type: 'room_joined', roomId: room.id, role, you: { id: client.id, nickname }, room: roomSummary(room) });
-      sendToClient(room.hostId, { type: 'peer_joined', clientId: client.id, nickname, role });
       broadcastRoomRoster(room);
+      if (room.gameState) broadcastGameState(room);
       broadcastLobby();
       break;
     }
-
     case 'leave_room': {
-      const room = rooms.get(client.roomId);
-      if (room && client.role === 'host' && msg.handoff && tryHostHandoff(room, client, msg.handoff)) {
-        broadcastLobby();
-        break;
-      }
       leaveCurrentRoom(client);
-      broadcastLobby();
       break;
     }
-
     case 'start_game': {
       const room = rooms.get(client.roomId);
-      if (room && client.role === 'host') {
-        room.started = true;
-        broadcastLobby();
-      }
+      if (!room || client.role !== 'host') return;
+      if (room.nextHandTimer) { clearTimeout(room.nextHandTimer); room.nextHandTimer = null; }
+      const res = startHand(room.gameState);
+      if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
+      room.started = true;
+      scheduleActionTimer(room);
+      broadcastGameState(room);
+      broadcastLobby();
       break;
     }
-
-    // 一般玩家 -> 主機：遊戲操作 (下注/蓋牌/...)
     case 'game_action': {
       const room = rooms.get(client.roomId);
-      if (!room) return;
-      sendToClient(room.hostId, {
-        type: 'game_action',
-        senderId: client.id,
-        senderNickname: client.nickname,
-        payload: msg.payload,
-      });
+      if (!room?.gameState) return;
+      if (client.role !== 'player' && client.role !== 'host') return;
+      const res = applyAction(room.gameState, client.id, msg.payload.action, msg.payload.amount);
+      if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
+      clearActionTimer(room);
+      checkTimers(room);
+      broadcastGameState(room);
       break;
     }
-
-    // 主機 -> 所有人：廣播牌局狀態（可依收件人分別隱藏手牌）
-    case 'state_update': {
+    case 'seat_request': {
       const room = rooms.get(client.roomId);
-      if (!room || client.role !== 'host') return;
-
-      const targeted = msg.targeted || {};
-      const sentTo = new Set();
-      for (const [targetId, payload] of Object.entries(targeted)) {
-        sendToClient(targetId, { type: 'state_update', payload });
-        sentTo.add(targetId);
-      }
-      if (msg.defaultView !== undefined) {
-        for (const memberId of roomMemberIds(room)) {
-          if (!sentTo.has(memberId)) {
-            sendToClient(memberId, { type: 'state_update', payload: msg.defaultView });
-          }
-        }
-      }
+      if (!room || client.role !== 'spectator') return;
+      const stage = room.gameState?.stage ?? 'waiting';
+      if (!['waiting', 'hand_over', 'showdown'].includes(stage))
+        return send(client.ws, { type: 'error', message: '牌局進行中，無法入座' });
+      if (room.players.size >= room.maxPlayers)
+        return send(client.ws, { type: 'error', message: '座位已滿' });
+      room.spectators.delete(client.id);
+      const nickname = uniqueDisplayName(room, client.nickname, client.id);
+      room.players.set(client.id, { nickname });
+      client.role = 'player';
+      if (room.gameState) addPlayer(room.gameState, client.id, nickname, room.settings.startingChips);
+      send(client.ws, { type: 'role_changed', role: 'player' });
+      broadcastRoomRoster(room); broadcastGameState(room); broadcastLobby();
       break;
     }
-
-    default:
+    case 'rebuy': {
+      const room = rooms.get(client.roomId);
+      if (!room?.gameState || !room.settings.allowRebuy)
+        return send(client.ws, { type: 'error', message: 'Rebuy 未啟用' });
+      if (client.role !== 'player' && client.role !== 'host') return;
+      const amount = Number(msg.amount) || Math.floor(room.settings.startingChips / 2);
+      const res = rebuy(room.gameState, client.id, amount);
+      if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
+      broadcastGameState(room);
       break;
+    }
+    case 'sit_out': {
+      const room = rooms.get(client.roomId);
+      if (!room?.gameState || (client.role !== 'player' && client.role !== 'host')) return;
+      const player = room.gameState.players.find(p => p.id === client.id);
+      if (!player || player.sittingOut) return;
+      const midHand = !['waiting', 'showdown', 'hand_over'].includes(room.gameState.stage);
+      if (midHand && !player.folded && !player.allIn) {
+        applyAction(room.gameState, client.id, 'fold');
+        clearActionTimer(room);
+      }
+      player.sittingOut = true;
+      if (midHand) checkTimers(room);
+      broadcastGameState(room);
+      break;
+    }
+    case 'sit_back': {
+      const room = rooms.get(client.roomId);
+      if (!room?.gameState || (client.role !== 'player' && client.role !== 'host')) return;
+      const player = room.gameState.players.find(p => p.id === client.id);
+      if (!player || !player.sittingOut) return;
+      player.sittingOut = false;
+      broadcastGameState(room);
+      break;
+    }
+    case 'leave_seat': {
+      const room = rooms.get(client.roomId);
+      if (!room || client.role !== 'player') return;
+      if (room.gameState) { removePlayer(room.gameState, client.id); clearActionTimer(room); }
+      room.players.delete(client.id);
+      room.spectators.set(client.id, { nickname: client.nickname });
+      client.role = 'spectator';
+      send(client.ws, { type: 'role_changed', role: 'spectator' });
+      broadcastRoomRoster(room);
+      if (room.gameState && room.started) { checkTimers(room); broadcastGameState(room); }
+      broadcastLobby();
+      if (room.started && room.players.size <= 1) closeRoom(room, '其他玩家皆已離開，房間關閉');
+      break;
+    }
+    default: break;
   }
 }
 

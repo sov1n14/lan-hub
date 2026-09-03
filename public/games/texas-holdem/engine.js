@@ -1,5 +1,6 @@
-// 德州撲克 - 純規則邏輯（沒有任何 DOM 操作）。
-// 只有房主的分頁會執行這支檔案裡的函式；其他人只收「畫面用」的 view snapshot。
+import { randomInt } from 'node:crypto';
+
+// 德州撲克 - 純規則邏輯（伺服器端執行，零 DOM 依賴）。
 
 export const STARTING_CHIPS = 2000;
 export const SMALL_BLIND = 25;
@@ -15,7 +16,7 @@ export function createDeck() {
 
 export function shuffle(deck) {
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
   return deck;
@@ -94,7 +95,7 @@ export function evaluate7(cards7) {
 
 // ---------- 遊戲狀態機 ----------
 
-export function createGame({ smallBlind = SMALL_BLIND, bigBlind = BIG_BLIND } = {}) {
+export function createGame({ smallBlind = SMALL_BLIND, bigBlind = BIG_BLIND, startingChips = STARTING_CHIPS } = {}) {
   return {
     smallBlind,
     bigBlind,
@@ -106,10 +107,12 @@ export function createGame({ smallBlind = SMALL_BLIND, bigBlind = BIG_BLIND } = 
     toActIdx: -1,
     currentBet: 0,
     minRaise: bigBlind,
+    startingChips,
     actedSet: new Set(),
     handNumber: 0,
     log: [],
     lastResult: null,
+    handHistory: [],
   };
 }
 
@@ -141,8 +144,28 @@ export function removePlayer(state, id) {
   if (!p.folded) {
     p.folded = true;
     log(state, `${p.nickname} 離線，自動蓋牌`);
-    advanceTurn(state, idx);
+    if (idx === state.toActIdx) {
+      advanceTurn(state, idx);
+    } else if (nonFoldedCount(state) <= 1) {
+      endHandByFold(state);
+    }
   }
+}
+
+export function rebuy(state, playerId, amount) {
+  if (!['waiting', 'hand_over', 'showdown'].includes(state.stage))
+    return { ok: false, error: '只能在非牌局進行中買入' };
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) return { ok: false, error: '找不到玩家' };
+  if (p.chips > 0) return { ok: false, error: '還有籌碼，無法 rebuy' };
+  const maxRebuy = Math.floor(state.startingChips / 2);
+  if (amount <= 0 || amount > maxRebuy)
+    return { ok: false, error: `Rebuy 金額須在 1~${maxRebuy} 之間` };
+  p.chips = amount;
+  p.sittingOut = false;
+  p.folded = true;
+  log(state, `${p.nickname} 重新買入 ${amount} 籌碼`);
+  return { ok: true };
 }
 
 // 牌局中斷線的人只會先蓋牌，真正把座位清空要等到下一手開局前才做，
@@ -203,7 +226,7 @@ export function startHand(state) {
   if (eligible.length < 2) return { ok: false, error: '至少需要 2 位有籌碼的玩家' };
 
   for (const p of state.players) {
-    p.sittingOut = p.chips <= 0;
+    p.sittingOut = p.sittingOut || p.chips <= 0;
     p.holeCards = [];
     p.folded = p.sittingOut;
     p.allIn = false;
@@ -290,16 +313,19 @@ export function applyAction(state, playerId, action, amount = 0) {
       const need = total - p.betThisRound;
       if (need > p.chips) return { ok: false, error: '籌碼不夠' };
       const isAllIn = need === p.chips;
-      const raiseSize = total - state.currentBet;
-      if (state.currentBet > 0 && raiseSize < state.minRaise && !isAllIn) {
-        return { ok: false, error: `加碼至少要到 ${state.currentBet + state.minRaise}` };
+      const minTotal = state.currentBet > 0 ? state.currentBet + state.minRaise : state.minRaise;
+      if (total < minTotal && !isAllIn) {
+        return { ok: false, error: `下注至少要到 ${minTotal}` };
       }
       p.chips -= need; p.betThisRound += need; p.betThisHand += need;
       if (p.chips === 0) p.allIn = true;
       if (total > state.currentBet) {
-        state.minRaise = Math.max(state.minRaise, total - state.currentBet);
+        const raiseAmount = total - state.currentBet;
+        if (raiseAmount >= state.minRaise) {
+          state.minRaise = Math.max(state.minRaise, raiseAmount);
+          aggressive = true;
+        }
         state.currentBet = total;
-        aggressive = true;
       }
       log(state, `${p.nickname} ${action === 'bet' ? '下注' : '加碼到'} ${total}${p.allIn ? '（全下）' : ''}`);
       break;
@@ -348,6 +374,8 @@ function endHandByFold(state) {
   state.stage = 'hand_over';
   state.lastResult = { winners: [{ id: winner.id, nickname: winner.nickname, amount: pot, hand: null }], pots: [{ amount: pot, eligible: [winner.id] }], reveal: [] };
   log(state, `${winner.nickname} 獲勝，贏得 ${pot} 籌碼（其他人已蓋牌）`);
+  state.handHistory.push({ handNumber: state.handNumber, result: state.lastResult });
+  if (state.handHistory.length > 20) state.handHistory.shift();
 }
 
 function computeSidePots(state) {
@@ -380,6 +408,12 @@ function showdown(state) {
     let bestEval = eligibleEvals[0][1];
     for (const [, e] of eligibleEvals) if (compareEval(e, bestEval) > 0) bestEval = e;
     const potWinners = eligibleEvals.filter(([, e]) => compareEval(e, bestEval) === 0).map(([id]) => id);
+    potWinners.sort((a, b) => {
+      const n = state.players.length;
+      const distA = (state.players.findIndex(p => p.id === a) - state.dealerIdx + n) % n;
+      const distB = (state.players.findIndex(p => p.id === b) - state.dealerIdx + n) % n;
+      return distA - distB;
+    });
     const share = Math.floor(pot.amount / potWinners.length);
     let remainder = pot.amount - share * potWinners.length;
     for (const id of potWinners) {
@@ -397,6 +431,8 @@ function showdown(state) {
     reveal: [...evals.entries()].map(([id, e]) => ({ id, evaluation: e.name })),
   };
   log(state, `攤牌！${winners.map((w) => `${w.nickname} +${w.amount}(${w.hand})`).join('、')}`);
+  state.handHistory.push({ handNumber: state.handNumber, result: state.lastResult });
+  if (state.handHistory.length > 20) state.handHistory.shift();
 }
 
 // ---------- 給前端用的「畫面視角」 ----------
@@ -416,6 +452,8 @@ export function viewFor(state, viewerId) {
     pot: state.players.reduce((s, p) => s + p.betThisHand, 0),
     log: state.log.slice(-14),
     lastResult: state.lastResult,
+    turnDeadline: state.turnDeadline || null,
+    handHistory: state.handHistory || [],
     players: state.players.map((p, idx) => ({
       id: p.id,
       nickname: p.nickname,

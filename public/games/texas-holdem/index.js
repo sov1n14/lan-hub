@@ -1,8 +1,3 @@
-// 德州撲克 - 前端掛載點。房主的分頁會建立並掌管權威狀態（engine.js），
-// 其他玩家/旁觀者的分頁只負責顯示伺服器轉發過來的 state_update。
-
-import { createGame, addPlayer, removePlayer, startHand, applyAction, viewFor } from './engine.js';
-
 let cssInjected = false;
 function ensureCss() {
   if (cssInjected) return;
@@ -13,9 +8,7 @@ function ensureCss() {
   cssInjected = true;
 }
 
-const AUTO_ADVANCE_SECONDS = 10;
-
-export function mount({ container, role, you, send, sendRaw, notify, notifyTurn, initialState }) {
+export function mount({ container, role, you, send, sendRaw, notify, notifyTurn }) {
   const warn = notify || ((msg) => alert(msg));
   ensureCss();
 
@@ -26,60 +19,63 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn,
           <div class="holdem-pot" id="hd-pot"></div>
           <div class="holdem-community" id="hd-community"></div>
           <div class="holdem-result" id="hd-result" hidden></div>
+          <div class="holdem-deadline" id="hd-deadline"></div>
         </div>
         <div class="holdem-seats" id="hd-seats"></div>
         <div class="holdem-log" id="hd-log"></div>
       </div>
       <div class="holdem-controls" id="hd-controls"></div>
+      <div class="holdem-secondary" id="hd-secondary"></div>
+      <details class="holdem-history"><summary>牌局紀錄</summary><div id="hd-history"></div></details>
     </div>
   `;
 
   const $pot = container.querySelector('#hd-pot');
   const $community = container.querySelector('#hd-community');
   const $result = container.querySelector('#hd-result');
+  const $deadline = container.querySelector('#hd-deadline');
   const $seats = container.querySelector('#hd-seats');
   const $log = container.querySelector('#hd-log');
   const $controls = container.querySelector('#hd-controls');
+  const $secondary = container.querySelector('#hd-secondary');
+  const $history = container.querySelector('#hd-history');
 
-  const isHost = role === 'host';
-  let state = null; // 只有房主用得到（權威狀態）
-  let autoAdvance = null; // { handNumber, intervalId }
+  let currentRole = role;
+  let deadlineInterval = null;
+  let lastView = null;
 
-  function clearAutoAdvance() {
-    if (autoAdvance) clearInterval(autoAdvance.intervalId);
-    autoAdvance = null;
+  function clearDeadlineInterval() {
+    if (deadlineInterval) { clearInterval(deadlineInterval); deadlineInterval = null; }
   }
 
   function canStartGame(view) {
     return view.players.filter((p) => p.chips > 0).length >= 2;
   }
 
-  function broadcastState() {
-    const targeted = {};
-    for (const p of state.players) targeted[p.id] = viewFor(state, p.id);
-    const defaultView = viewFor(state, '__spectator__');
-    sendRaw({ type: 'state_update', targeted, defaultView });
-  }
-
   function performAction(action, amount) {
-    if (isHost) {
-      const res = applyAction(state, you.id, action, amount);
-      if (!res.ok) return warn(res.error, { error: true });
-      broadcastState();
-    } else {
-      send('game_action', { action, amount });
-    }
+    send('game_action', { action, amount });
   }
 
-  function hostStart() {
-    const res = startHand(state);
-    // 不管成功與否都要重播：就算沒開成新的一手，斷線離座造成的座位變動還是要讓大家看到，
-    // 不然畫面會卡在舊的倒數/按鈕文字上不動。
-    broadcastState();
-    if (!res.ok) warn(res.error, { error: true });
+  function playNotifySound() {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.value = 0.3;
+      osc.frequency.value = 800;
+      osc.start(); osc.stop(ctx.currentTime + 0.15);
+    } catch {}
+  }
+
+  function updateDeadline(view) {
+    if (!view.turnDeadline) { $deadline.textContent = ''; return; }
+    const remaining = Math.max(0, Math.ceil((view.turnDeadline - Date.now()) / 1000));
+    $deadline.textContent = remaining > 0 ? `⏱ ${remaining}s` : '';
   }
 
   function render(view) {
+    lastView = view;
     $pot.textContent = `底池 ${view.pot}`;
     $community.innerHTML =
       view.communityCards.map((c) => cardHTML(c)).join('') ||
@@ -96,37 +92,21 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn,
     }
 
     renderControls(view);
+    renderSecondary(view);
+    renderHistory(view);
+    updateDeadline(view);
+
+    clearDeadlineInterval();
+    if (view.turnDeadline) {
+      deadlineInterval = setInterval(() => updateDeadline(view), 1000);
+    }
 
     const isMyTurn = !!(
       view.players[view.toActIdx]?.id === you.id &&
       !['waiting', 'showdown', 'hand_over'].includes(view.stage)
     );
+    if (isMyTurn) playNotifySound();
     notifyTurn?.(isMyTurn);
-
-    if (['hand_over', 'showdown'].includes(view.stage) && canStartGame(view)) {
-      startAutoAdvance(view);
-    } else {
-      clearAutoAdvance();
-    }
-  }
-
-  function startAutoAdvance(view) {
-    if (autoAdvance && autoAdvance.handNumber === view.handNumber) return; // 已經在倒數了
-    clearAutoAdvance();
-    let remaining = AUTO_ADVANCE_SECONDS;
-    const el = $controls.querySelector('#hd-countdown');
-    const tick = () => {
-      if (el) el.textContent = `（${remaining} 秒後自動開始下一手）`;
-      if (remaining <= 0) {
-        clearAutoAdvance();
-        if (isHost) hostStart();
-        return;
-      }
-      remaining -= 1;
-    };
-    tick();
-    const intervalId = setInterval(tick, 1000);
-    autoAdvance = { handNumber: view.handNumber, intervalId };
   }
 
   function renderControls(view) {
@@ -134,18 +114,19 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn,
     const html = [];
 
     if (['waiting', 'hand_over', 'showdown'].includes(view.stage)) {
-      if (isHost) {
+      if (currentRole === 'host') {
         const canStart = canStartGame(view);
         const label = view.stage === 'waiting' ? '開始遊戲' : '下一手';
         html.push(`<button id="btn-start" ${canStart ? '' : 'disabled'}>${label}</button>`);
         if (!canStart) html.push(`<span style="color:var(--text-dim)">至少需要 2 位有籌碼的玩家</span>`);
-        else if (view.stage !== 'waiting') html.push(`<span class="countdown-label" id="hd-countdown"></span>`);
-      } else if (role === 'player') {
-        const label = view.stage === 'waiting' ? '等待房主開始遊戲…' : '等待房主開始下一手…';
-        html.push(`<span style="color:var(--text-dim)">${label}</span>`);
-        if (view.stage !== 'waiting' && canStartGame(view)) html.push(`<span class="countdown-label" id="hd-countdown"></span>`);
-      } else {
+      } else if (currentRole === 'spectator') {
         html.push(`<span style="color:var(--text-dim)">👀 旁觀中</span>`);
+        if (view.players.length < (view.maxPlayers || 6)) {
+          html.push(`<button id="btn-seat">入座</button>`);
+        }
+      } else {
+        const label = view.stage === 'waiting' ? '等待房主開始遊戲…' : '等待下一手…';
+        html.push(`<span style="color:var(--text-dim)">${label}</span>`);
       }
     } else if (me && view.players[view.toActIdx]?.id === you.id && !me.folded && !me.allIn) {
       const toCall = view.currentBet - me.betThisRound;
@@ -175,67 +156,66 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn,
 
     $controls.innerHTML = html.join('');
 
-    $controls.querySelector('#btn-start')?.addEventListener('click', hostStart);
+    $controls.querySelector('#btn-start')?.addEventListener('click', () => sendRaw({ type: 'start_game' }));
+    $controls.querySelector('#btn-seat')?.addEventListener('click', () => sendRaw({ type: 'seat_request' }));
     $controls.querySelector('#btn-fold')?.addEventListener('click', () => performAction('fold'));
     $controls.querySelector('#btn-call')?.addEventListener('click', () => {
-      const toCall = view.currentBet - me.betThisRound;
+      const toCall = view.currentBet - (view.players.find(p => p.id === you.id)?.betThisRound || 0);
       performAction(toCall > 0 ? 'call' : 'check');
     });
     const range = $controls.querySelector('#bet-range');
     const label = $controls.querySelector('#bet-amount-label');
-    range?.addEventListener('input', () => {
-      label.textContent = range.value;
-    });
+    range?.addEventListener('input', () => { label.textContent = range.value; });
     $controls.querySelector('#btn-raise')?.addEventListener('click', () => {
       performAction(view.currentBet > 0 ? 'raise' : 'bet', Number(range.value));
     });
     $controls.querySelector('#btn-allin')?.addEventListener('click', () => {
+      const me = view.players.find(p => p.id === you.id);
       performAction(view.currentBet > 0 ? 'raise' : 'bet', me.chips + me.betThisRound);
     });
   }
 
-  if (isHost) {
-    if (initialState) {
-      // 從前一位房主接手：直接沿用收到的權威狀態，牌局照樣繼續。
-      // actedSet 經過 JSON 轉送會變成陣列，這裡要轉回 Set。
-      state = { ...initialState, actedSet: new Set(initialState.actedSet || []) };
+  function renderSecondary(view) {
+    const me = view.players.find(p => p.id === you.id);
+    if (!me || currentRole === 'spectator') { $secondary.innerHTML = ''; return; }
+    const html = [];
+    if (me.sittingOut) {
+      html.push('<button id="btn-sitback">回座</button>');
     } else {
-      state = createGame();
-      addPlayer(state, you.id, you.nickname);
+      html.push('<button id="btn-sitout" class="secondary">暫離</button>');
     }
-    broadcastState();
-  } else {
-    $controls.innerHTML = `<span style="color:var(--text-dim)">等待房主開始遊戲…</span>`;
+    html.push('<button id="btn-leaveseat" class="secondary danger">退座轉旁觀</button>');
+    if (me.chips === 0 && ['waiting', 'hand_over', 'showdown'].includes(view.stage)) {
+      html.push('<button id="btn-rebuy">重新買入</button>');
+    }
+    $secondary.innerHTML = html.join(' ');
+    $secondary.querySelector('#btn-sitout')?.addEventListener('click', () => sendRaw({ type: 'sit_out' }));
+    $secondary.querySelector('#btn-sitback')?.addEventListener('click', () => sendRaw({ type: 'sit_back' }));
+    $secondary.querySelector('#btn-leaveseat')?.addEventListener('click', () => sendRaw({ type: 'leave_seat' }));
+    $secondary.querySelector('#btn-rebuy')?.addEventListener('click', () => sendRaw({ type: 'rebuy' }));
   }
+
+  function renderHistory(view) {
+    if (!view.handHistory || view.handHistory.length === 0) { $history.innerHTML = '<em>尚無紀錄</em>'; return; }
+    $history.innerHTML = view.handHistory.map(h => {
+      const winners = h.result?.winners || [];
+      const desc = winners.map(w => `${escapeHtml(w.nickname)} +${w.amount}${w.hand ? `（${w.hand}）` : ''}`).join('、');
+      return `<div>第 ${h.handNumber} 手：${desc || '—'}</div>`;
+    }).join('');
+  }
+
+  $controls.innerHTML = `<span style="color:var(--text-dim)">等待遊戲狀態…</span>`;
 
   return {
     onMessage(msg) {
-      if (isHost) {
-        if (msg.type === 'peer_joined') {
-          if (msg.role === 'player') addPlayer(state, msg.clientId, msg.nickname);
-          broadcastState();
-        } else if (msg.type === 'peer_left') {
-          removePlayer(state, msg.clientId);
-          broadcastState();
-        } else if (msg.type === 'game_action') {
-          const res = applyAction(state, msg.senderId, msg.payload.action, msg.payload.amount);
-          if (res.ok) broadcastState();
-        } else if (msg.type === 'state_update') {
-          render(msg.payload);
-        }
-      } else if (msg.type === 'state_update') {
-        render(msg.payload);
+      if (msg.type === 'state_update') render(msg.payload);
+      else if (msg.type === 'role_changed') {
+        currentRole = msg.role;
+        if (lastView) render(lastView);
       }
     },
-    prepareHandoff() {
-      // 房主主動離開：把自己標記成離線（沿用一般斷線的蓋牌/離座邏輯），
-      // 再把剩下的權威狀態交給下一位玩家。actedSet 是 Set，經 JSON 傳送前要先轉成陣列。
-      if (!isHost || !state) return null;
-      removePlayer(state, you.id);
-      return { ...state, actedSet: [...state.actedSet] };
-    },
     destroy() {
-      clearAutoAdvance();
+      clearDeadlineInterval();
       container.innerHTML = '';
     },
   };

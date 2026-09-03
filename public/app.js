@@ -27,6 +27,9 @@ const els = {
   createGametype: document.getElementById('create-gametype'),
   createRoomname: document.getElementById('create-roomname'),
   createMaxplayers: document.getElementById('create-maxplayers'),
+  createBigblind: document.getElementById('create-bigblind'),
+  createStartchips: document.getElementById('create-startchips'),
+  createRebuy: document.getElementById('create-rebuy'),
   createCancelBtn: document.getElementById('create-cancel-btn'),
   createConfirmBtn: document.getElementById('create-confirm-btn'),
 };
@@ -48,6 +51,8 @@ function connect() {
   ws = new WebSocket(wsUrl());
   ws.addEventListener('open', () => {
     els.connDot.classList.add('on');
+    const savedId = localStorage.getItem('og_clientId');
+    if (savedId) sendMsg({ type: 'reconnect', clientId: savedId });
     const savedNick = localStorage.getItem('og_nickname');
     if (savedNick) sendMsg({ type: 'set_nickname', nickname: savedNick });
   });
@@ -56,7 +61,8 @@ function connect() {
     setTimeout(connect, 1500);
   });
   ws.addEventListener('message', (ev) => {
-    const msg = JSON.parse(ev.data);
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
     handleServerMessage(msg);
   });
 }
@@ -78,6 +84,7 @@ function handleServerMessage(msg) {
   switch (msg.type) {
     case 'welcome':
       clientId = msg.clientId;
+      localStorage.setItem('og_clientId', clientId);
       break;
     case 'room_list':
       catalog = msg.catalog;
@@ -91,8 +98,16 @@ function handleServerMessage(msg) {
       showToast(msg.reason || '房間已關閉', { error: true });
       showLobby();
       break;
-    case 'host_handoff':
-      promoteToHost(msg);
+    case 'promoted_to_host':
+      showToast('你已被指派為新房主');
+      if (currentGame) currentGame.role = 'host';
+      els.roomRoleLabel.textContent = '🎩 房主';
+      break;
+    case 'role_changed':
+      if (currentGame) currentGame.role = msg.role;
+      els.roomRoleLabel.textContent = { host: '🎩 房主', player: '🎮 玩家', spectator: '👀 旁觀' }[msg.role] || msg.role;
+      els.spectatorBanner.hidden = msg.role !== 'spectator';
+      routeToGame(msg);
       break;
     case 'roster':
       updateRoomHeader(msg.room);
@@ -167,6 +182,9 @@ els.createConfirmBtn.addEventListener('click', () => {
     gameType: els.createGametype.value,
     name: els.createRoomname.value,
     maxPlayers: Number(els.createMaxplayers.value) || 6,
+    bigBlind: Number(els.createBigblind.value) || 50,
+    startingChips: Number(els.createStartchips.value) || 2000,
+    allowRebuy: els.createRebuy.checked,
   });
   els.createModal.hidden = true;
   els.createRoomname.value = '';
@@ -320,30 +338,6 @@ async function enterRoomView(msg) {
   for (const queuedMsg of queued) instance.onMessage?.(queuedMsg);
 }
 
-// 房主主動離開房間時，把權威狀態交給下一位玩家接手，房間不會因此關掉。
-async function promoteToHost(msg) {
-  currentGame?.instance?.destroy?.();
-  const gameType = currentGame?.gameType;
-  const loader = GAME_MODULES[gameType];
-  if (!loader) return;
-
-  showToast('你被系統指派接任房主', {});
-  els.roomRoleLabel.textContent = '🎩 房主';
-
-  const mod = await loader();
-  const instance = mod.mount({
-    container: els.gameMount,
-    role: 'host',
-    you: msg.you,
-    initialState: msg.state,
-    send: (type, payload) => sendMsg({ type, payload }),
-    sendRaw: sendMsg,
-    onLeave: showLobby,
-    notify: showToast,
-    notifyTurn,
-  });
-  currentGame = { role: 'host', roomId: currentGame?.roomId, gameType, instance };
-}
 
 function updateRoomHeader(room) {
   els.roomNameLabel.textContent = room.name;
@@ -362,9 +356,7 @@ function showLobby() {
 }
 
 els.leaveBtn.addEventListener('click', () => {
-  // 如果是房主，先把權威狀態交棒給下一位玩家，房間才不會因為房主離開就關掉
-  const handoff = currentGame?.role === 'host' ? currentGame?.instance?.prepareHandoff?.() : null;
-  sendMsg({ type: 'leave_room', handoff: handoff || undefined });
+  sendMsg({ type: 'leave_room' });
   showLobby();
 });
 
