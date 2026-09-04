@@ -14,6 +14,21 @@
   font-size: 16px;
 }
 
+[data-theme="light"] {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --panel-2: #ebedf0;
+  --border: #d0d4d9;
+  --text: #1f2328;
+  --text-dim: #656d76;
+  --accent: #2ea97c;
+  --accent-dark: #248a65;
+  --danger: #cf3c32;
+  --warn: #c9952e;
+  --felt: #1a7a4e;
+  --felt-2: #0f5a38;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -140,6 +155,7 @@ input, select {
   animation: toast-in 0.15s ease-out;
 }
 .toast.error { border-color: var(--danger); color: #ffd7d2; }
+[data-theme="light"] .toast.error { color: #9b1c13; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ---------- 偷玩模式：偽裝頁面 ---------- */
@@ -168,6 +184,13 @@ input, select {
 .decoy-table th, .decoy-table td { border: 1px solid #e2e2e2; padding: 8px 10px; text-align: left; }
 .decoy-table th { background: #fafafa; color: #555; }
 .decoy-footer { color: #9aa1a8; font-size: 0.8rem; margin-top: 24px; }
+
+/* theme toggle */
+.theme-toggle {
+  background: transparent; padding: 4px 8px; font-size: 1.1rem;
+  color: var(--text-dim); line-height: 1;
+}
+.theme-toggle:hover { background: var(--panel-2); }
 
 /* toggle switch */
 .toggle-row {

@@ -39,7 +39,19 @@ const els = {
   createRebuy: document.getElementById('create-rebuy'),
   createCancelBtn: document.getElementById('create-cancel-btn'),
   createConfirmBtn: document.getElementById('create-confirm-btn'),
+  themeToggle: document.getElementById('theme-toggle'),
 };
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  els.themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
+  localStorage.setItem('og_theme', theme);
+}
+applyTheme(localStorage.getItem('og_theme')
+  || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+els.themeToggle.addEventListener('click', () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+});
 
 const { notifyTurn, resetStealth } = initStealth(els);
 const lobby = initLobby(els, sendMsg);
