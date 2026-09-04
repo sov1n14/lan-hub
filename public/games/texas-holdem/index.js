@@ -158,6 +158,11 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
       html.push(
         `<span style="color:var(--text-dim)">${me.folded ? '你已蓋牌，' : ''}${me.allIn ? '你已全下，' : ''}等待其他玩家行動…</span>`
       );
+    } else if (currentRole === 'spectator') {
+      html.push(`<span style="color:var(--text-dim)">👀 旁觀中</span>`);
+      if (view.players.length < (view.maxPlayers || 6)) {
+        html.push(`<button id="btn-seat" disabled>入座</button>`);
+      }
     } else {
       html.push(`<span style="color:var(--text-dim)">👀 旁觀中</span>`);
     }
@@ -165,7 +170,8 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
     $controls.innerHTML = html.join('');
 
     $controls.querySelector('#btn-start')?.addEventListener('click', () => sendRaw({ type: 'start_game' }));
-    $controls.querySelector('#btn-seat')?.addEventListener('click', () => sendRaw({ type: 'seat_request' }));
+    const $seatBtn = $controls.querySelector('#btn-seat');
+    if ($seatBtn && !$seatBtn.disabled) $seatBtn.addEventListener('click', () => sendRaw({ type: 'seat_request' }));
     $controls.querySelector('#btn-fold')?.addEventListener('click', () => performAction('fold'));
     $controls.querySelector('#btn-call')?.addEventListener('click', () => {
       const toCall = view.currentBet - (view.players.find(p => p.id === you.id)?.betThisRound || 0);
