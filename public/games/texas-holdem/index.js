@@ -1,3 +1,10 @@
+import { escapeHtml } from '/ui.js';
+import { cardHTML, seatsHTML, resultHTML, winnersHTML } from '/games/texas-holdem/view.js';
+
+const NOTIFY_GAIN = 0.3;
+const NOTIFY_FREQUENCY = 800;
+const NOTIFY_DURATION = 0.15;
+
 let cssInjected = false;
 function ensureCss() {
   if (cssInjected) return;
@@ -8,8 +15,7 @@ function ensureCss() {
   cssInjected = true;
 }
 
-export function mount({ container, role, you, send, sendRaw, notify, notifyTurn }) {
-  const warn = notify || ((msg) => alert(msg));
+export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
   ensureCss();
 
   container.innerHTML = `
@@ -48,8 +54,9 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn 
     if (deadlineInterval) { clearInterval(deadlineInterval); deadlineInterval = null; }
   }
 
+  // Match server's readyToStart: !p.sittingOut && p.chips > 0
   function canStartGame(view) {
-    return view.players.filter((p) => p.chips > 0).length >= 2;
+    return view.players.filter((p) => !p.sittingOut && p.chips > 0).length >= 2;
   }
 
   function performAction(action, amount) {
@@ -62,9 +69,9 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      gain.gain.value = 0.3;
-      osc.frequency.value = 800;
-      osc.start(); osc.stop(ctx.currentTime + 0.15);
+      gain.gain.value = NOTIFY_GAIN;
+      osc.frequency.value = NOTIFY_FREQUENCY;
+      osc.start(); osc.stop(ctx.currentTime + NOTIFY_DURATION);
     } catch {}
   }
 
@@ -197,11 +204,9 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn 
 
   function renderHistory(view) {
     if (!view.handHistory || view.handHistory.length === 0) { $history.innerHTML = '<em>尚無紀錄</em>'; return; }
-    $history.innerHTML = view.handHistory.map(h => {
-      const winners = h.result?.winners || [];
-      const desc = winners.map(w => `${escapeHtml(w.nickname)} +${w.amount}${w.hand ? `（${w.hand}）` : ''}`).join('、');
-      return `<div>第 ${h.handNumber} 手：${desc || '—'}</div>`;
-    }).join('');
+    $history.innerHTML = view.handHistory
+      .map(h => `<div>第 ${h.handNumber} 手：${winnersHTML(h.result?.winners || []) || '—'}</div>`)
+      .join('');
   }
 
   $controls.innerHTML = `<span style="color:var(--text-dim)">等待遊戲狀態…</span>`;
@@ -219,50 +224,4 @@ export function mount({ container, role, you, send, sendRaw, notify, notifyTurn 
       container.innerHTML = '';
     },
   };
-}
-
-function cardHTML(card, small) {
-  if (card === 'back') return `<div class="card back ${small ? 'small' : ''}"></div>`;
-  const suitChar = { s: '♠', h: '♥', d: '♦', c: '♣' }[card.s];
-  const red = card.s === 'h' || card.s === 'd';
-  const rankChar = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' }[card.r] || card.r;
-  return `<div class="card ${red ? 'red' : ''} ${small ? 'small' : ''}">${rankChar}${suitChar}</div>`;
-}
-
-function seatsHTML(view, youId) {
-  return view.players
-    .map((p, i) => {
-      const classes = ['seat'];
-      if (i === view.toActIdx && !['waiting', 'showdown', 'hand_over'].includes(view.stage)) classes.push('turn');
-      if (p.folded) classes.push('folded');
-      if (p.id === youId) classes.push('you');
-      const dealer = i === view.dealerIdx ? '<span class="dealer-btn">D</span> ' : '';
-      const cards = p.holeCards.map((c) => cardHTML(c, true)).join('');
-      const tags = [];
-      if (p.allIn) tags.push('<span class="tag">ALL-IN</span>');
-      if (p.sittingOut) tags.push('<span class="tag">離座</span>');
-      if (!p.connected) tags.push('<span class="tag">離線</span>');
-      return `
-        <div class="${classes.join(' ')}">
-          <div class="seat-name">${dealer}${escapeHtml(p.nickname)} ${tags.join(' ')}</div>
-          <div class="seat-chips">💰 ${p.chips}</div>
-          ${p.betThisRound > 0 ? `<div class="seat-bet">本輪下注 ${p.betThisRound}</div>` : ''}
-          <div class="seat-cards">${cards}</div>
-        </div>`;
-    })
-    .join('');
-}
-
-function resultHTML(view) {
-  if (!view.lastResult) return '';
-  return (
-    '🏆 ' +
-    view.lastResult.winners
-      .map((w) => `${escapeHtml(w.nickname)} +${w.amount}${w.hand ? `（${w.hand}）` : ''}`)
-      .join('、')
-  );
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
