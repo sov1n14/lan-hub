@@ -3,10 +3,10 @@ import {
   send, sendToClient, roomSummary,
   broadcastLobby, broadcastRoomRoster, broadcastGameState,
   clearActionTimer, checkTimers,
-  uniqueDisplayName, closeRoom, leaveCurrentRoom,
+  uniqueDisplayName, closeRoom, leaveCurrentRoom, transferHost,
   displayName, chatHistory, pushChat, systemChat,
 } from './rooms.js';
-import { createGame, addPlayer, removePlayer, startHand, applyAction, rebuy, STARTING_CHIPS, BIG_BLIND } from './holdem/engine.js';
+import { createGame, addPlayer, removePlayer, sitOut, startHand, applyAction, rebuy, STARTING_CHIPS, BIG_BLIND } from './holdem/engine.js';
 
 const ROOM_NAME_MAX_LENGTH = 30;
 const NICKNAME_MAX_LENGTH = 20;
@@ -91,9 +91,9 @@ function handleLeaveRoom(client, _msg) {
 function handleStartGame(client, _msg) {
   const room = rooms.get(client.roomId);
   if (!room || client.role !== 'host') return;
-  if (room.nextHandTimer) { clearTimeout(room.nextHandTimer); room.nextHandTimer = null; }
   const res = startHand(room.gameState);
   if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
+  if (room.nextHandTimer) { clearTimeout(room.nextHandTimer); room.nextHandTimer = null; }
   room.started = true;
   checkTimers(room);
   broadcastGameState(room);
@@ -125,6 +125,7 @@ function handleSeatRequest(client, _msg) {
   client.role = 'player';
   if (room.gameState) addPlayer(room.gameState, client.id, nickname, room.settings.startingChips);
   send(client.ws, { type: 'role_changed', role: 'player' });
+  checkTimers(room);
   broadcastRoomRoster(room); broadcastGameState(room); broadcastLobby();
 }
 
@@ -136,6 +137,7 @@ function handleRebuy(client, msg) {
   const amount = Number(msg.amount) || Math.floor(room.settings.startingChips / 2);
   const res = rebuy(room.gameState, client.id, amount);
   if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
+  checkTimers(room);
   broadcastGameState(room);
 }
 
@@ -144,10 +146,8 @@ function handleSitOut(client, _msg) {
   if (!room?.gameState || (client.role !== 'player' && client.role !== 'host')) return;
   const player = room.gameState.players.find(p => p.id === client.id);
   if (!player || player.sittingOut) return;
-  const midHand = !['waiting', 'showdown', 'hand_over'].includes(room.gameState.stage);
-  if (midHand && !player.folded && !player.allIn) applyAction(room.gameState, client.id, 'fold');
-  player.sittingOut = true;
-  if (midHand) checkTimers(room);
+  sitOut(room.gameState, client.id);
+  checkTimers(room);
   broadcastGameState(room);
 }
 
@@ -157,12 +157,15 @@ function handleSitBack(client, _msg) {
   const player = room.gameState.players.find(p => p.id === client.id);
   if (!player || !player.sittingOut) return;
   player.sittingOut = false;
+  checkTimers(room);
   broadcastGameState(room);
 }
 
 function handleLeaveSeat(client, _msg) {
   const room = rooms.get(client.roomId);
-  if (!room || client.role !== 'player') return;
+  if (!room || (client.role !== 'player' && client.role !== 'host')) return;
+  if (client.role === 'host' && !transferHost(room))
+    return send(client.ws, { type: 'error', message: '沒有其他玩家可接手房主，無法退座' });
   if (room.gameState) removePlayer(room.gameState, client.id);
   room.players.delete(client.id);
   room.spectators.set(client.id, { nickname: client.nickname });

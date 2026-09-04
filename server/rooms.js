@@ -151,6 +151,19 @@ export function closeRoom(room, reason) {
   broadcastLobby();
 }
 
+// 把房主交給第一位其他在座玩家；沒有人可接手時回傳 false。
+export function transferHost(room) {
+  const newHostId = [...room.players.keys()].find((id) => id !== room.hostId);
+  if (!newHostId) return false;
+  const nh = clients.get(newHostId);
+  room.hostId = newHostId;
+  room.hostNickname = nh.nickname;
+  nh.role = 'host';
+  sendToClient(newHostId, { type: 'promoted_to_host' });
+  systemChat(room, `${nh.nickname} 成為新房主`);
+  return true;
+}
+
 export function leaveCurrentRoom(client, opts = {}) {
   const room = rooms.get(client.roomId);
   client.roomId = null;
@@ -167,19 +180,9 @@ export function leaveCurrentRoom(client, opts = {}) {
   }
   systemChat(room, `${name} ${opts.disconnect ? '離線了' : '離開了房間'}`);
 
-  if (wasRole === 'host') {
-    const newHostId = [...room.players.keys()][0];
-    if (newHostId) {
-      const nh = clients.get(newHostId);
-      room.hostId = newHostId;
-      room.hostNickname = nh.nickname;
-      nh.role = 'host';
-      sendToClient(newHostId, { type: 'promoted_to_host' });
-      systemChat(room, `${nh.nickname} 成為新房主`);
-    } else {
-      closeRoom(room, opts.disconnect ? '房主已離線，沒有其他玩家可接手，房間關閉' : '房主已離開，沒有其他玩家可接手，房間關閉');
-      return;
-    }
+  if (wasRole === 'host' && !transferHost(room)) {
+    closeRoom(room, opts.disconnect ? '房主已離線，沒有其他玩家可接手，房間關閉' : '房主已離開，沒有其他玩家可接手，房間關閉');
+    return;
   }
 
   if (room.started && room.players.size <= 1) {
