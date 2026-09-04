@@ -11,12 +11,14 @@
   overflow-y: auto;
 }
 
+/* Seats sit on an ellipse around the board; angle derived from seat index. */
+.holdem-ring { position: relative; width: 100%; max-width: 760px; aspect-ratio: 16 / 10; }
 .holdem-board {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  margin-top: 10px;
 }
 .holdem-pot { color: #fff; font-weight: 700; font-size: 1.05rem; background: rgba(0,0,0,0.3); padding: 4px 14px; border-radius: 999px; }
 .holdem-community { display: flex; gap: 6px; min-height: 76px; }
@@ -31,9 +33,15 @@
 .card.back { background: repeating-linear-gradient(45deg, #2b5aa8, #2b5aa8 6px, #24488a 6px, #24488a 12px); border: 2px solid #16305e; }
 .card.small { width: 34px; height: 48px; font-size: 0.95rem; }
 
-.holdem-seats { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; width: 100%; }
+.holdem-seats { position: absolute; inset: 0; pointer-events: none; }
 
 .seat {
+  --seat-angle: calc(90deg + var(--seat-i) / var(--seat-n) * 360deg);
+  position: absolute;
+  left: calc(50% + (50% - 80px) * cos(var(--seat-angle)));
+  top: calc(50% + (50% - 70px) * sin(var(--seat-angle)));
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
   background: rgba(0,0,0,0.35);
   border: 2px solid transparent;
   border-radius: 12px;
@@ -49,7 +57,7 @@
 .seat.you { background: rgba(76,201,160,0.18); }
 .seat .seat-name { font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .seat .seat-chips { font-size: 0.85rem; color: #cfe; opacity: 0.9; }
-.seat .seat-bet { font-size: 0.8rem; color: var(--warn); }
+.seat .seat-bet { font-size: 0.8rem; color: var(--warn); white-space: nowrap; }
 .seat .seat-cards { display: flex; gap: 4px; }
 .seat .tag { font-size: 0.7rem; background: rgba(255,255,255,0.15); border-radius: 6px; padding: 1px 6px; }
 .seat .dealer-btn { background: #fff; color: #111; border-radius: 50%; width: 18px; height: 18px; font-size: 0.65rem; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
@@ -80,11 +88,13 @@
 /* F13: Mobile responsive */
 @media (max-width: 600px) {
   .holdem-root { padding: 8px; }
-  .holdem-seats { flex-wrap: wrap; justify-content: center; gap: 8px; }
-  .seat { min-width: 45%; }
+  /* Circle has no room on a phone; stack board then wrapped seats. */
+  .holdem-ring { aspect-ratio: auto; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .holdem-board { position: static; transform: none; }
+  .holdem-seats { position: static; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .seat { position: static; transform: none; min-width: 45%; }
   .holdem-controls button { padding: 12px 16px; font-size: 1rem; }
   .holdem-controls input[type="range"] { width: 100%; }
-  .holdem-board { flex-direction: column; align-items: center; }
 }
 
 .holdem-deadline { color: #ff6b35; font-weight: bold; margin-top: 4px; }

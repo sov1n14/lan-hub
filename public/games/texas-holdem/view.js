@@ -9,8 +9,12 @@ export function cardHTML(card, small) {
 }
 
 export function seatsHTML(view, youId) {
+  const n = view.players.length;
+  // Rotate the ring so the viewer's seat lands at the bottom; spectators see seat 0 there.
+  const youIdx = Math.max(0, view.players.findIndex((p) => p.id === youId));
   return view.players
     .map((p, i) => {
+      const ringPos = (i - youIdx + n) % n;
       const classes = ['seat'];
       if (i === view.toActIdx && !['waiting', 'showdown', 'hand_over'].includes(view.stage)) classes.push('turn');
       if (p.folded) classes.push('folded');
@@ -22,10 +26,10 @@ export function seatsHTML(view, youId) {
       if (p.sittingOut) tags.push('<span class="tag">離座</span>');
       if (!p.connected) tags.push('<span class="tag">離線</span>');
       return `
-        <div class="${classes.join(' ')}">
+        <div class="${classes.join(' ')}" style="--seat-i:${ringPos};--seat-n:${n}">
           <div class="seat-name">${dealer}${escapeHtml(p.nickname)} ${tags.join(' ')}</div>
           <div class="seat-chips">💰 ${p.chips}</div>
-          ${p.betThisRound > 0 ? `<div class="seat-bet">本輪下注 ${p.betThisRound}</div>` : ''}
+          ${p.betThisHand > 0 ? `<div class="seat-bet">本輪 ${p.betThisRound} · 本手累計 ${p.betThisHand}</div>` : ''}
           <div class="seat-cards">${cards}</div>
         </div>`;
     })
