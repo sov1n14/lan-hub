@@ -146,7 +146,7 @@ export function startHand(state) {
   if (eligible.length < 2) return { ok: false, error: '至少需要 2 位有籌碼的玩家' };
 
   for (const p of state.players) {
-    p.sittingOut = p.sittingOut || p.chips <= 0;
+    p.sittingOut = p.chips <= 0;
     p.holeCards = [];
     p.folded = p.sittingOut;
     p.allIn = false;

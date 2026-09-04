@@ -33,7 +33,7 @@ export function initLobby(els, sendMsg) {
           ${r.started ? '<span class="badge">🎲 進行中</span>' : ''}
         </div>
         <div class="actions">
-          <button data-join="${r.id}" ${full || r.started ? 'disabled' : ''}>加入遊戲</button>
+          <button data-join="${r.id}" ${full ? 'disabled' : ''}>加入遊戲</button>
           <button class="secondary" data-spectate="${r.id}">旁觀</button>
         </div>
       `;

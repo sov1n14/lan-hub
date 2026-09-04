@@ -67,7 +67,6 @@ function handleJoinRoom(client, msg) {
   if (!room) return send(client.ws, { type: 'error', message: '房間不存在或已關閉' });
   let role = msg.as === 'spectator' ? 'spectator' : 'player';
   if (role === 'player' && room.players.size >= room.maxPlayers) role = 'spectator';
-  if (role === 'player' && room.started) role = 'spectator';
   const nickname = uniqueDisplayName(room, client.nickname, client.id);
   if (role === 'player') {
     room.players.set(client.id, { nickname });
