@@ -15,7 +15,7 @@ function ensureCss() {
   cssInjected = true;
 }
 
-export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
+export function mount({ container, role, you, room, send, sendRaw, notifyTurn }) {
   ensureCss();
 
   container.innerHTML = `
@@ -51,6 +51,7 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
   let currentRole = role;
   let deadlineInterval = null;
   let lastView = null;
+  let wasMyTurn = false;
 
   function clearDeadlineInterval() {
     if (deadlineInterval) { clearInterval(deadlineInterval); deadlineInterval = null; }
@@ -61,7 +62,13 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
     return view.players.filter((p) => !p.sittingOut && p.chips > 0).length >= 2;
   }
 
+  // 送出後先鎖住按鈕，避免連點送兩次；下一次 render（state_update 或 error）會重畫按鈕。
+  function lockControls() {
+    for (const btn of $controls.querySelectorAll('button')) btn.disabled = true;
+  }
+
   function performAction(action, amount) {
+    lockControls();
     send('game_action', { action, amount });
   }
 
@@ -115,7 +122,8 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
       view.players[view.toActIdx]?.id === you.id &&
       !['waiting', 'showdown', 'hand_over'].includes(view.stage)
     );
-    if (isMyTurn) playNotifySound();
+    if (isMyTurn && !wasMyTurn) playNotifySound();
+    wasMyTurn = isMyTurn;
     notifyTurn?.(isMyTurn);
   }
 
@@ -131,7 +139,7 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
         if (!canStart) html.push(`<span style="color:var(--text-dim)">至少需要 2 位有籌碼的玩家</span>`);
       } else if (currentRole === 'spectator') {
         html.push(`<span style="color:var(--text-dim)">👀 旁觀中</span>`);
-        if (view.players.length < (view.maxPlayers || 6)) {
+        if (view.players.length < room.maxPlayers) {
           html.push(`<button id="btn-seat">入座</button>`);
         }
       } else {
@@ -148,7 +156,8 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
           ? `<button id="btn-call">跟注 ${Math.min(toCall, me.chips)}</button>`
           : `<button id="btn-call">過牌</button>`
       );
-      if (me.chips > 0 && maxBet > view.currentBet) {
+      const canRaise = !view.actedIds.includes(you.id);
+      if (canRaise && me.chips > 0 && maxBet > view.currentBet) {
         html.push(`
           <input type="range" id="bet-range" min="${minRaiseTo}" max="${maxBet}" value="${minRaiseTo}" step="1" />
           <span class="bet-amount" id="bet-amount-label">${minRaiseTo}</span>
@@ -162,7 +171,7 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
       );
     } else if (currentRole === 'spectator') {
       html.push(`<span style="color:var(--text-dim)">👀 旁觀中</span>`);
-      if (view.players.length < (view.maxPlayers || 6)) {
+      if (view.players.length < room.maxPlayers) {
         html.push(`<button id="btn-seat" disabled>入座</button>`);
       }
     } else {
@@ -171,9 +180,9 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
 
     $controls.innerHTML = html.join('');
 
-    $controls.querySelector('#btn-start')?.addEventListener('click', () => sendRaw({ type: 'start_game' }));
+    $controls.querySelector('#btn-start')?.addEventListener('click', () => { lockControls(); sendRaw({ type: 'start_game' }); });
     const $seatBtn = $controls.querySelector('#btn-seat');
-    if ($seatBtn && !$seatBtn.disabled) $seatBtn.addEventListener('click', () => sendRaw({ type: 'seat_request' }));
+    if ($seatBtn && !$seatBtn.disabled) $seatBtn.addEventListener('click', () => { lockControls(); sendRaw({ type: 'seat_request' }); });
     $controls.querySelector('#btn-fold')?.addEventListener('click', () => performAction('fold'));
     $controls.querySelector('#btn-call')?.addEventListener('click', () => {
       const toCall = view.currentBet - (view.players.find(p => p.id === you.id)?.betThisRound || 0);
@@ -227,6 +236,7 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
         currentRole = msg.role;
         if (lastView) render(lastView);
       }
+      else if (msg.type === 'error' && lastView) render(lastView);
     },
     destroy() {
       clearDeadlineInterval();

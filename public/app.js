@@ -1,6 +1,6 @@
 // 大廳 + 房間 shell：負責 WebSocket 連線、大廳列表、切換房間畫面。
 // 個別遊戲的規則/UI 都在 games/<gameType>/index.js 裡，透過下面的 contract 掛進來：
-//   export function mount({ container, role, you, send, sendRaw, notifyTurn }) -> { onMessage(msg), destroy() }
+//   export function mount({ container, role, you, room, send, sendRaw, notifyTurn }) -> { onMessage(msg), destroy() }
 
 import { showToast } from '/ui.js';
 import { initStealth } from '/stealth.js';
@@ -121,6 +121,7 @@ function handleServerMessage(msg) {
     case 'promoted_to_host':
       showToast('你已被指派為新房主');
       setRole('host');
+      routeToGame({ type: 'role_changed', role: 'host' });
       break;
     case 'role_changed':
       setRole(msg.role);
@@ -132,6 +133,7 @@ function handleServerMessage(msg) {
       break;
     case 'error':
       showToast(msg.message, { error: true });
+      routeToGame(msg);
       break;
     case 'state_update':
       routeToGame(msg);
@@ -180,6 +182,7 @@ async function enterRoomView(msg) {
     container: els.gameMount,
     role: msg.role,
     you: msg.you,
+    room: msg.room,
     send: (type, payload) => sendMsg({ type, payload }),
     sendRaw: sendMsg,
     notifyTurn,
