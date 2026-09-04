@@ -4,12 +4,14 @@ import {
   broadcastLobby, broadcastRoomRoster, broadcastGameState,
   clearActionTimer, checkTimers,
   uniqueDisplayName, closeRoom, leaveCurrentRoom,
+  displayName, chatHistory, pushChat, systemChat,
 } from './rooms.js';
 import { createGame, addPlayer, removePlayer, startHand, applyAction, rebuy, STARTING_CHIPS, BIG_BLIND } from './holdem/engine.js';
 
 const ROOM_NAME_MAX_LENGTH = 30;
 const NICKNAME_MAX_LENGTH = 20;
 const MIN_BLIND = 2;
+const CHAT_MAX_LENGTH = 200;
 
 function handleSetNickname(client, msg) {
   const raw = String(msg.nickname || client.nickname).slice(0, NICKNAME_MAX_LENGTH);
@@ -50,7 +52,7 @@ function handleCreateRoom(client, msg) {
     spectators: new Map(), started: false,
     gameState: createGame({ smallBlind, bigBlind, startingChips: chips }),
     settings: { bigBlind, smallBlind, startingChips: chips, allowRebuy },
-    disconnectedPlayers: new Map(), actionTimer: null, nextHandTimer: null,
+    disconnectedPlayers: new Map(), actionTimer: null, nextHandTimer: null, chat: [],
   };
   addPlayer(room.gameState, client.id, client.nickname, chips);
   rooms.set(roomId, room);
@@ -76,6 +78,7 @@ function handleJoinRoom(client, msg) {
   }
   client.roomId = room.id; client.role = role;
   send(client.ws, { type: 'room_joined', roomId: room.id, role, you: { id: client.id, nickname }, room: roomSummary(room) });
+  systemChat(room, `${nickname} ${role === 'spectator' ? '進來旁觀' : '加入了房間'}`);
   broadcastRoomRoster(room);
   if (room.gameState) broadcastGameState(room);
   broadcastLobby();
@@ -170,7 +173,21 @@ function handleLeaveSeat(client, _msg) {
   broadcastLobby();
 }
 
+// 在房間裡（含旁觀、暫離）只有房內成員互通；在大廳則所有大廳使用者互通。
+function handleChat(client, msg) {
+  const text = String(msg.text ?? '').trim().slice(0, CHAT_MAX_LENGTH);
+  if (!text) return;
+  const room = rooms.get(client.roomId);
+  pushChat(room, { type: 'chat', fromId: client.id, from: displayName(room, client), text, ts: Date.now() });
+}
+
+function handleChatHistory(client, _msg) {
+  send(client.ws, { type: 'chat_history', messages: chatHistory(rooms.get(client.roomId)) });
+}
+
 const MESSAGE_HANDLERS = {
+  chat: handleChat,
+  chat_history: handleChatHistory,
   set_nickname: handleSetNickname,
   list_rooms: handleListRooms,
   create_room: handleCreateRoom,
