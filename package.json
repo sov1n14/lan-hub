@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "license": "ISC",
   "description": "LAN Hub - 同 WiFi 開房間玩",
   "main": "server.js",
   "scripts": {
