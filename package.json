@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "辦公室小遊戲大廳 - 同 WiFi 開房間玩",
+  "description": "LAN Hub - 同 WiFi 開房間玩",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

@@ -84,7 +84,7 @@ server.listen(PORT, () => {
     }
   }
   console.log('========================================');
-  console.log(' 辦公室小遊戲 已啟動');
+  console.log(' LAN Hub 已啟動');
   console.log(` 本機開啟: http://localhost:${PORT}`);
   for (const a of addrs) console.log(` 同 WiFi 的人開啟: http://${a}:${PORT}`);
   console.log('========================================');
