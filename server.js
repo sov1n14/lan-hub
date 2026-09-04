@@ -102,16 +102,19 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, () => {
-  const nets = os.networkInterfaces();
-  const addrs = [];
-  for (const list of Object.values(nets)) {
-    for (const net of list || []) {
-      if (net.family === 'IPv4' && !net.internal) addrs.push(net.address);
-    }
-  }
   console.log('========================================');
   console.log(' LAN Hub 已啟動');
-  console.log(` 本機開啟: http://localhost:${PORT}`);
-  for (const a of addrs) console.log(` 同 WiFi 的人開啟: http://${a}:${PORT}`);
+  if (process.env.RENDER) {
+    console.log(` 公開網址: https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
+  } else {
+    const nets = os.networkInterfaces();
+    console.log(` 本機開啟: http://localhost:${PORT}`);
+    for (const list of Object.values(nets)) {
+      for (const net of list || []) {
+        if (net.family === 'IPv4' && !net.internal)
+          console.log(` 同 WiFi 的人開啟: http://${net.address}:${PORT}`);
+      }
+    }
+  }
   console.log('========================================');
 });
