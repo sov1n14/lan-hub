@@ -140,6 +140,8 @@ export function applyAction(state, playerId, action, amount = 0) {
     }
     case 'bet':
     case 'raise': {
+      // TDA 43：未達最小加碼的全下不重開下注，已行動者只能跟注或棄牌。
+      if (state.actedSet.has(p.id)) return { ok: false, error: '短全下不重開下注，只能跟注或蓋牌' };
       const total = Number(amount);
       if (!Number.isFinite(total) || total <= p.betThisRound) return { ok: false, error: '下注金額不正確' };
       const need = total - p.betThisRound;

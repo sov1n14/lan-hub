@@ -19,5 +19,6 @@ export function nextIndexWhere(state, fromIdx, predicate) {
   return -1;
 }
 
+export const isMidHand = (state) => !['waiting', 'showdown', 'hand_over'].includes(state.stage);
 export const isSeated = (p) => !p.sittingOut;
 export const canAct = (p) => !p.sittingOut && !p.folded && !p.allIn;

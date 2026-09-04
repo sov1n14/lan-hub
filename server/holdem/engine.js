@@ -1,7 +1,7 @@
 // 德州撲克 - 遊戲狀態機入口（伺服器端執行，零 DOM 依賴）
 
 import { randomInt } from 'node:crypto';
-import { log, nextIndexWhere, isSeated, canAct } from './util.js';
+import { log, nextIndexWhere, isMidHand, isSeated, canAct } from './util.js';
 import { applyAction, advanceTurn, nonFoldedCount, endHandByFold } from './hand.js';
 
 export { applyAction };
@@ -53,24 +53,37 @@ export function addPlayer(state, id, nickname, buyIn = STARTING_CHIPS) {
     existing.connected = true;
     existing.nickname = nickname;
     if (existing.chips <= 0) existing.chips = buyIn;
-    existing.sittingOut = state.stage !== 'waiting';
+    existing.sittingOut = false;
     return;
   }
+  // 牌局中加入者 folded=true 即足以排除在本手之外；sittingOut 只保留給自願暫離。
   state.players.push({
     id, nickname, chips: buyIn,
     holeCards: [], folded: true, allIn: false,
     betThisRound: 0, betThisHand: 0,
-    connected: true, sittingOut: state.stage !== 'waiting',
+    connected: true, sittingOut: false,
   });
+}
+
+// 牌局中離座（暫離或離線）：立即棄牌，已投入的籌碼留在彩池由其他人爭奪。
+export function sitOut(state, id, reason = '暫離') {
+  const idx = state.players.findIndex((x) => x.id === id);
+  if (idx === -1) return;
+  const p = state.players[idx];
+  p.sittingOut = true;
+  if (!isMidHand(state) || p.folded) return;
+  p.folded = true;
+  log(state, `${p.nickname} ${reason}，自動蓋牌`);
+  if (idx === state.toActIdx) advanceTurn(state, idx);
+  else if (nonFoldedCount(state) <= 1) endHandByFold(state);
 }
 
 export function removePlayer(state, id) {
   const idx = state.players.findIndex((x) => x.id === id);
   if (idx === -1) return;
   const p = state.players[idx];
-  const midHand = !['waiting', 'showdown', 'hand_over'].includes(state.stage);
 
-  if (!midHand) {
+  if (!isMidHand(state)) {
     state.players.splice(idx, 1);
     if (state.dealerIdx === idx) state.dealerIdx = -1;
     else if (state.dealerIdx > idx) state.dealerIdx -= 1;
@@ -79,20 +92,11 @@ export function removePlayer(state, id) {
   }
 
   p.connected = false;
-  p.sittingOut = true;
-  if (!p.folded) {
-    p.folded = true;
-    log(state, `${p.nickname} 離線，自動蓋牌`);
-    if (idx === state.toActIdx) {
-      advanceTurn(state, idx);
-    } else if (nonFoldedCount(state) <= 1) {
-      endHandByFold(state);
-    }
-  }
+  sitOut(state, id, '離線');
 }
 
 export function rebuy(state, playerId, amount) {
-  if (!['waiting', 'hand_over', 'showdown'].includes(state.stage))
+  if (isMidHand(state))
     return { ok: false, error: '只能在非牌局進行中買入' };
   const p = state.players.find(x => x.id === playerId);
   if (!p) return { ok: false, error: '找不到玩家' };
@@ -141,12 +145,13 @@ function postBet(state, player, amount) {
 }
 
 export function startHand(state) {
+  if (isMidHand(state)) return { ok: false, error: '牌局進行中，無法開始新的一手' };
   purgeDisconnected(state);
   const eligible = state.players.filter((p) => !p.sittingOut && p.chips > 0);
   if (eligible.length < 2) return { ok: false, error: '至少需要 2 位有籌碼的玩家' };
 
   for (const p of state.players) {
-    p.sittingOut = p.chips <= 0;
+    p.sittingOut = p.sittingOut || p.chips <= 0;
     p.holeCards = [];
     p.folded = p.sittingOut;
     p.allIn = false;
@@ -195,6 +200,7 @@ export function viewFor(state, viewerId) {
     minRaise: state.minRaise,
     dealerIdx: state.dealerIdx,
     toActIdx: state.toActIdx,
+    actedIds: [...state.actedSet],
     smallBlind: state.smallBlind,
     bigBlind: state.bigBlind,
     pot: state.players.reduce((s, p) => s + p.betThisHand, 0),
