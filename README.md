@@ -1,8 +1,10 @@
 # LAN Hub
 
-同 WiFi 開房間玩的區域網路多人遊戲平台。啟動 Node.js 伺服器後，同事用瀏覽器連入大廳，建立房間即可開始遊戲。
+多人遊戲平台，開瀏覽器就能玩。支援區域網路及公開網路連線，建立房間即可開始遊戲。
 
 內建老闆鍵（F9）一鍵偽裝成產品規格文件，安心摸魚。
+
+**線上體驗：** <https://lan-hub.onrender.com>
 
 ## 功能
 
@@ -11,9 +13,16 @@
 - 斷線重連：60 秒內重連自動恢復座位與籌碼
 - 房主遷移：房主離開時自動指派下一位玩家
 - 老闆鍵：F9 切換偽裝畫面，favicon 紅點提示輪到你行動
+- 深淺主題切換：自動偵測系統偏好，可手動切換
 - 音效提示：輪到你時發出提示音
 
 ## 快速開始
+
+### 線上遊玩
+
+開啟 <https://lan-hub.onrender.com> 即可進入大廳（免費方案，首次載入需約 30 秒喚醒）。
+
+### 本機啟動
 
 ```bash
 npm install
@@ -37,6 +46,7 @@ PORT=8080 npm start
 | 前端 | 原生 ES Modules，無框架、無打包 |
 | 狀態 | 記憶體內 Map，無資料庫 |
 | 安全 | Server-authoritative + `viewFor()` 每人只看到自己的手牌 |
+| 部署 | Render Free tier，push 到 main 自動部署 |
 
 ```mermaid
 flowchart LR
@@ -52,6 +62,7 @@ flowchart LR
 ```
 lan-hub/
 ├── server.js                 # HTTP + WebSocket 啟動入口
+├── render.yaml               # Render 部署 Blueprint
 ├── server/
 │   ├── rooms.js              # 房間 / 玩家註冊、廣播、生命週期
 │   ├── handlers.js           # 訊息類型 → handler 分派
