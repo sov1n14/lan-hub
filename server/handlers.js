@@ -2,7 +2,7 @@ import {
   GAME_CATALOG, clients, rooms, bumpRoomId,
   send, sendToClient, roomSummary,
   broadcastLobby, broadcastRoomRoster, broadcastGameState,
-  scheduleActionTimer, clearActionTimer, checkTimers,
+  clearActionTimer, checkTimers,
   uniqueDisplayName, closeRoom, leaveCurrentRoom,
 } from './rooms.js';
 import { createGame, addPlayer, removePlayer, startHand, applyAction, rebuy, STARTING_CHIPS, BIG_BLIND } from './holdem/engine.js';
@@ -93,7 +93,7 @@ function handleStartGame(client, _msg) {
   const res = startHand(room.gameState);
   if (!res.ok) return send(client.ws, { type: 'error', message: res.error });
   room.started = true;
-  scheduleActionTimer(room);
+  checkTimers(room);
   broadcastGameState(room);
   broadcastLobby();
 }
@@ -143,10 +143,7 @@ function handleSitOut(client, _msg) {
   const player = room.gameState.players.find(p => p.id === client.id);
   if (!player || player.sittingOut) return;
   const midHand = !['waiting', 'showdown', 'hand_over'].includes(room.gameState.stage);
-  if (midHand && !player.folded && !player.allIn) {
-    applyAction(room.gameState, client.id, 'fold');
-    clearActionTimer(room);
-  }
+  if (midHand && !player.folded && !player.allIn) applyAction(room.gameState, client.id, 'fold');
   player.sittingOut = true;
   if (midHand) checkTimers(room);
   broadcastGameState(room);
@@ -164,7 +161,7 @@ function handleSitBack(client, _msg) {
 function handleLeaveSeat(client, _msg) {
   const room = rooms.get(client.roomId);
   if (!room || client.role !== 'player') return;
-  if (room.gameState) { removePlayer(room.gameState, client.id); clearActionTimer(room); }
+  if (room.gameState) removePlayer(room.gameState, client.id);
   room.players.delete(client.id);
   room.spectators.set(client.id, { nickname: client.nickname });
   client.role = 'spectator';

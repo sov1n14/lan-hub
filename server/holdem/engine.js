@@ -179,10 +179,9 @@ export function startHand(state) {
   for (const p of seated) p.holeCards = [state.deck.pop(), state.deck.pop()];
 
   const bbIdx = state.players.indexOf(bbPlayer);
-  state.toActIdx = nextIndexWhere(state, bbIdx, canAct);
-  if (state.toActIdx === -1) state.toActIdx = bbIdx;
-
   log(state, `第 ${state.handNumber} 手開始`);
+  state.toActIdx = nextIndexWhere(state, bbIdx, canAct);
+  if (state.toActIdx === -1) advanceTurn(state, bbIdx);
   return { ok: true };
 }
 
@@ -201,7 +200,7 @@ export function viewFor(state, viewerId) {
     pot: state.players.reduce((s, p) => s + p.betThisHand, 0),
     log: state.log.slice(-14),
     lastResult: state.lastResult,
-    turnDeadline: state.turnDeadline || null,
+    turnRemainingMs: state.turnDeadline ? Math.max(0, state.turnDeadline - Date.now()) : null,
     handHistory: state.handHistory || [],
     players: state.players.map((p, idx) => ({
       id: p.id,

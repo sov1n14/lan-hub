@@ -75,9 +75,9 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
     } catch {}
   }
 
-  function updateDeadline(view) {
-    if (!view.turnDeadline) { $deadline.textContent = ''; return; }
-    const remaining = Math.max(0, Math.ceil((view.turnDeadline - Date.now()) / 1000));
+  function updateDeadline(localDeadline) {
+    if (!localDeadline) { $deadline.textContent = ''; return; }
+    const remaining = Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000));
     $deadline.textContent = remaining > 0 ? `⏱ ${remaining}s` : '';
   }
 
@@ -101,11 +101,12 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
     renderControls(view);
     renderSecondary(view);
     renderHistory(view);
-    updateDeadline(view);
+    const localDeadline = view.turnRemainingMs == null ? null : Date.now() + view.turnRemainingMs;
+    updateDeadline(localDeadline);
 
     clearDeadlineInterval();
-    if (view.turnDeadline) {
-      deadlineInterval = setInterval(() => updateDeadline(view), 1000);
+    if (localDeadline) {
+      deadlineInterval = setInterval(() => updateDeadline(localDeadline), 1000);
     }
 
     const isMyTurn = !!(

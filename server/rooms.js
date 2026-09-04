@@ -66,21 +66,24 @@ export function broadcastGameState(room) {
 
 // --- Timers ---
 export function scheduleActionTimer(room) {
-  clearActionTimer(room);
   const gs = room.gameState;
-  if (!gs || ['waiting', 'showdown', 'hand_over'].includes(gs.stage)) return;
+  if (!gs || ['waiting', 'showdown', 'hand_over'].includes(gs.stage)) return clearActionTimer(room);
+  const player = gs.players[gs.toActIdx];
+  if (room.actionTimer && room.actionTimerPlayerId === player?.id) return;
+  clearActionTimer(room);
   gs.turnDeadline = Date.now() + ACTION_TIMEOUT_MS;
+  room.actionTimerPlayerId = player?.id ?? null;
   room.actionTimer = setTimeout(() => {
     room.actionTimer = null;
-    const player = gs.players[gs.toActIdx];
-    if (!player || player.folded || player.allIn) return;
-    applyAction(gs, player.id, 'fold');
+    const toCall = gs.currentBet - player.betThisRound;
+    applyAction(gs, player.id, toCall > 0 ? 'fold' : 'check');
     checkTimers(room);
     broadcastGameState(room);
   }, ACTION_TIMEOUT_MS);
 }
 export function clearActionTimer(room) {
   if (room.actionTimer) { clearTimeout(room.actionTimer); room.actionTimer = null; }
+  room.actionTimerPlayerId = null;
   if (room.gameState) room.gameState.turnDeadline = null;
 }
 export function scheduleNextHandTimer(room) {
@@ -90,7 +93,7 @@ export function scheduleNextHandTimer(room) {
     if (!room.gameState || !readyToStart(room.gameState)) return;
     const res = startHand(room.gameState);
     if (!res.ok) return;
-    scheduleActionTimer(room);
+    checkTimers(room);
     broadcastGameState(room);
     broadcastLobby();
   }, NEXT_HAND_DELAY_MS);
@@ -138,7 +141,7 @@ export function leaveCurrentRoom(client, opts = {}) {
 
   if (wasRole === 'player' || wasRole === 'host') {
     room.players.delete(client.id);
-    if (room.gameState) { removePlayer(room.gameState, client.id); clearActionTimer(room); }
+    if (room.gameState) removePlayer(room.gameState, client.id);
   } else if (wasRole === 'spectator') {
     room.spectators.delete(client.id);
   }

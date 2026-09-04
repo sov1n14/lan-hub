@@ -6,7 +6,8 @@
   "description": "LAN Hub - 同 WiFi 開房間玩",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20.0.0"
