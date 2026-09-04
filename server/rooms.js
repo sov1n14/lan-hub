@@ -4,8 +4,8 @@ import {
   startHand, applyAction, viewFor, rebuy,
 } from './holdem/engine.js';
 
-const ACTION_TIMEOUT_MS = 30_000;
-const NEXT_HAND_DELAY_MS = 5_000;
+const ACTION_TIMEOUT_MS = 60_000;
+const NEXT_HAND_DELAY_MS = 10_000;
 const RECONNECT_GRACE_MS = 60_000;
 
 export const GAME_CATALOG = [
