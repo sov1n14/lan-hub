@@ -21,13 +21,15 @@ export function mount({ container, role, you, send, sendRaw, notifyTurn }) {
   container.innerHTML = `
     <div class="holdem-root">
       <div class="holdem-table">
-        <div class="holdem-board">
-          <div class="holdem-pot" id="hd-pot"></div>
-          <div class="holdem-community" id="hd-community"></div>
-          <div class="holdem-result" id="hd-result" hidden></div>
-          <div class="holdem-deadline" id="hd-deadline"></div>
+        <div class="holdem-ring">
+          <div class="holdem-board">
+            <div class="holdem-pot" id="hd-pot"></div>
+            <div class="holdem-community" id="hd-community"></div>
+            <div class="holdem-result" id="hd-result" hidden></div>
+            <div class="holdem-deadline" id="hd-deadline"></div>
+          </div>
+          <div class="holdem-seats" id="hd-seats"></div>
         </div>
-        <div class="holdem-seats" id="hd-seats"></div>
         <div class="holdem-log" id="hd-log"></div>
       </div>
       <div class="holdem-controls" id="hd-controls"></div>
