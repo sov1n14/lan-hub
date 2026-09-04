@@ -5,6 +5,7 @@
 import { showToast } from '/ui.js';
 import { initStealth } from '/stealth.js';
 import { initLobby } from '/lobby.js';
+import { initChat } from '/chat.js';
 
 const GAME_MODULES = {
   'texas-holdem': () => import('/games/texas-holdem/index.js'),
@@ -40,6 +41,11 @@ const els = {
   createCancelBtn: document.getElementById('create-cancel-btn'),
   createConfirmBtn: document.getElementById('create-confirm-btn'),
   themeToggle: document.getElementById('theme-toggle'),
+  chatTitle: document.getElementById('chat-title'),
+  chatLog: document.getElementById('chat-log'),
+  chatInput: document.getElementById('chat-input'),
+  chatSendBtn: document.getElementById('chat-send-btn'),
+  chatResizer: document.getElementById('chat-resizer'),
 };
 
 function applyTheme(theme) {
@@ -55,6 +61,7 @@ els.themeToggle.addEventListener('click', () => {
 
 const { notifyTurn, resetStealth } = initStealth(els);
 const lobby = initLobby(els, sendMsg);
+const chat = initChat(els, sendMsg);
 
 let ws = null;
 let currentGame = null; // { role, roomId, gameType, instance }
@@ -99,6 +106,7 @@ function handleServerMessage(msg) {
   switch (msg.type) {
     case 'welcome':
       localStorage.setItem('og_clientId', msg.clientId);
+      chat.requestHistory();
       break;
     case 'room_list':
       lobby.renderRoomList(msg.catalog, msg.rooms);
@@ -128,6 +136,12 @@ function handleServerMessage(msg) {
     case 'state_update':
       routeToGame(msg);
       break;
+    case 'chat':
+      chat.append(msg);
+      break;
+    case 'chat_history':
+      chat.setHistory(msg.messages);
+      break;
     default:
       break;
   }
@@ -151,6 +165,8 @@ async function enterRoomView(msg) {
   updateRoomHeader(msg.room);
   setRole(msg.role);
   resetStealth();
+  chat.setScope(msg.room.name);
+  chat.requestHistory();
 
   els.gameMount.innerHTML = '';
   pendingGameMessages = [];
@@ -187,6 +203,8 @@ function showLobby() {
   els.roomView.hidden = true;
   els.lobbyView.hidden = false;
   resetStealth();
+  chat.setScope(null);
+  chat.requestHistory();
   sendMsg({ type: 'list_rooms' });
 }
 
