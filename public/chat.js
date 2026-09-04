@@ -1,5 +1,5 @@
 // 聊天室側欄：大廳與房間共用，切換視圖時向伺服器重新索取該範圍的歷史訊息。
-import { escapeHtml } from '/ui.js';
+import { escapeHtml, trackComposition } from '/ui.js';
 
 const CHAT_MAX_LENGTH = 200;
 const MAX_LINES = 200;
@@ -10,7 +10,11 @@ export function initChat(els, sendMsg) {
   const nicknameMap = new Map();
   let messages = [];
 
+  // 組字期間 value 含尚未確認的字，送出後 IME 會再把字塞回輸入框，導致重複送出；組字中一律不送
+  const isComposing = trackComposition(els.chatInput);
+
   function submit() {
+    if (isComposing()) return;
     const text = els.chatInput.value.trim().slice(0, CHAT_MAX_LENGTH);
     if (!text) return;
     sendMsg({ type: 'chat', text });

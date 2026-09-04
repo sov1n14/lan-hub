@@ -1,5 +1,5 @@
 // 大廳：房間列表、開房 modal、暱稱設定。
-import { escapeHtml } from '/ui.js';
+import { escapeHtml, trackComposition } from '/ui.js';
 
 const MAX_PLAYERS_LIMIT = 10;
 const DEFAULT_MAX_PLAYERS = 6;
@@ -100,7 +100,9 @@ export function initLobby(els, sendMsg) {
   nicknameModalInput.addEventListener('input', () => {
     nicknameModalConfirm.disabled = !nicknameModalInput.value.trim();
   });
+  const isComposing = trackComposition(nicknameModalInput);
   function confirmNicknameModal() {
+    if (isComposing()) return;
     const nick = nicknameModalInput.value.trim();
     if (!nick) return;
     localStorage.setItem('og_nickname', nick);
