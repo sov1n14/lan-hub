@@ -1,20 +1,35 @@
 // 偷玩模式：F9 手動切換假文件
 
 export function initStealth(els) {
+  let fromLobby = false;
+
   function showDecoy() {
     els.stealthDecoy.hidden = false;
     els.roomReal.hidden = true;
   }
 
   function showGame() {
-    els.stealthDecoy.hidden = true;
-    els.roomReal.hidden = false;
+    if (fromLobby) {
+      fromLobby = false;
+      els.roomView.hidden = true;
+      els.lobbyView.hidden = false;
+    } else {
+      els.stealthDecoy.hidden = true;
+      els.roomReal.hidden = false;
+    }
   }
 
   function toggleStealth() {
-    if (els.roomView.hidden) return;
-    if (els.stealthDecoy.hidden) showDecoy();
-    else showGame();
+    if (els.roomView.hidden) {
+      fromLobby = true;
+      els.lobbyView.hidden = true;
+      els.roomView.hidden = false;
+      showDecoy();
+    } else if (els.stealthDecoy.hidden) {
+      showDecoy();
+    } else {
+      showGame();
+    }
   }
 
   els.stealthDecoy.addEventListener('click', showGame);
@@ -66,6 +81,7 @@ export function initStealth(els) {
   }
 
   function resetStealth() {
+    fromLobby = false;
     showGame();
     setFavicon(false);
     els.decoyBadge.hidden = true;
