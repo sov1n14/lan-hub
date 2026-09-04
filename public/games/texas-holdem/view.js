@@ -36,13 +36,23 @@ export function seatsHTML(view, youId) {
     .join('');
 }
 
-export function winnersHTML(winners) {
+export function winnersHTML(winners, players) {
   return winners
-    .map((w) => `${escapeHtml(w.nickname)} +${w.amount}${w.hand ? `（${w.hand}）` : ''}`)
+    .map((w) => {
+      const name = players?.find(p => p.id === w.id)?.nickname ?? w.nickname;
+      return `${escapeHtml(name)} +${w.amount}${w.hand ? `（${w.hand}）` : ''}`;
+    })
     .join('、');
 }
 
 export function resultHTML(view) {
   if (!view.lastResult) return '';
-  return '🏆 ' + winnersHTML(view.lastResult.winners);
+  return '🏆 ' + winnersHTML(view.lastResult.winners, view.players);
+}
+
+export function logLineHTML(entry, players) {
+  if (typeof entry === 'string') return escapeHtml(entry);
+  if (!entry.id) return escapeHtml(entry.text);
+  const name = players?.find(p => p.id === entry.id)?.nickname ?? entry.id;
+  return `${escapeHtml(name)} ${escapeHtml(entry.text)}`;
 }

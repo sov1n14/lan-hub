@@ -73,7 +73,7 @@ export function sitOut(state, id, reason = '暫離') {
   p.sittingOut = true;
   if (!isMidHand(state) || p.folded) return;
   p.folded = true;
-  log(state, `${p.nickname} ${reason}，自動蓋牌`);
+  log(state, p.id, `${reason}，自動蓋牌`);
   if (idx === state.toActIdx) advanceTurn(state, idx);
   else if (nonFoldedCount(state) <= 1) endHandByFold(state);
 }
@@ -87,7 +87,7 @@ export function removePlayer(state, id) {
     state.players.splice(idx, 1);
     if (state.dealerIdx === idx) state.dealerIdx = -1;
     else if (state.dealerIdx > idx) state.dealerIdx -= 1;
-    log(state, `${p.nickname} 離線，已離座`);
+    log(state, p.id, '離線，已離座');
     return;
   }
 
@@ -107,7 +107,7 @@ export function rebuy(state, playerId, amount) {
   p.chips = amount;
   p.sittingOut = false;
   p.folded = true;
-  log(state, `${p.nickname} 重新買入 ${amount} 籌碼`);
+  log(state, p.id, `重新買入 ${amount} 籌碼`);
   return { ok: true };
 }
 
@@ -141,7 +141,7 @@ function postBet(state, player, amount) {
   player.betThisRound += actual;
   player.betThisHand += actual;
   if (player.chips === 0) player.allIn = true;
-  log(state, `${player.nickname} 下注 ${actual}`);
+  log(state, player.id, `下注 ${actual}`);
 }
 
 export function startHand(state) {
@@ -184,7 +184,7 @@ export function startHand(state) {
   for (const p of seated) p.holeCards = [state.deck.pop(), state.deck.pop()];
 
   const bbIdx = state.players.indexOf(bbPlayer);
-  log(state, `第 ${state.handNumber} 手開始`);
+  log(state, null, `第 ${state.handNumber} 手開始`);
   state.toActIdx = nextIndexWhere(state, bbIdx, canAct);
   if (state.toActIdx === -1) advanceTurn(state, bbIdx);
   return { ok: true };

@@ -7,6 +7,9 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 640;
 
 export function initChat(els, sendMsg) {
+  const nicknameMap = new Map();
+  let messages = [];
+
   function submit() {
     const text = els.chatInput.value.trim().slice(0, CHAT_MAX_LENGTH);
     if (!text) return;
@@ -18,9 +21,18 @@ export function initChat(els, sendMsg) {
 
   function lineHTML(msg) {
     const time = new Date(msg.ts).toLocaleTimeString('zh-Hant', { hour: '2-digit', minute: '2-digit' });
-    if (msg.system) return `<div class="chat-line system"><span class="chat-time">${time}</span> ${escapeHtml(msg.text)}</div>`;
+    if (msg.system) {
+      const who = msg.fromId ? (nicknameMap.get(msg.fromId) ?? msg.fromNickname ?? '') : '';
+      const prefix = who ? `${escapeHtml(who)} ` : '';
+      return `<div class="chat-line system"><span class="chat-time">${time}</span> ${prefix}${escapeHtml(msg.text)}</div>`;
+    }
+    const name = (msg.fromId && nicknameMap.get(msg.fromId)) || msg.from;
     const mine = msg.fromId === localStorage.getItem('og_clientId');
-    return `<div class="chat-line${mine ? ' mine' : ''}"><span class="chat-time">${time}</span> <b>${escapeHtml(msg.from)}</b>：${escapeHtml(msg.text)}</div>`;
+    return `<div class="chat-line${mine ? ' mine' : ''}"><span class="chat-time">${time}</span> <b>${escapeHtml(name)}</b>：${escapeHtml(msg.text)}</div>`;
+  }
+  function rerender() {
+    els.chatLog.innerHTML = messages.map(lineHTML).join('');
+    els.chatLog.scrollTop = els.chatLog.scrollHeight;
   }
   function scrollToBottom() { els.chatLog.scrollTop = els.chatLog.scrollHeight; }
 
@@ -46,15 +58,28 @@ export function initChat(els, sendMsg) {
 
   return {
     append(msg) {
+      messages.push(msg);
+      if (messages.length > MAX_LINES) messages.shift();
       els.chatLog.insertAdjacentHTML('beforeend', lineHTML(msg));
       while (els.chatLog.childElementCount > MAX_LINES) els.chatLog.firstElementChild.remove();
       scrollToBottom();
     },
-    setHistory(messages) {
-      els.chatLog.innerHTML = messages.map(lineHTML).join('');
-      scrollToBottom();
+    setHistory(msgs) {
+      messages = [...msgs];
+      rerender();
+    },
+    updateNicknames(entries) {
+      let changed = false;
+      for (const { id, nickname } of entries) {
+        if (nicknameMap.get(id) !== nickname) { nicknameMap.set(id, nickname); changed = true; }
+      }
+      if (changed) rerender();
     },
     requestHistory() { sendMsg({ type: 'chat_history' }); },
-    setScope(roomName) { els.chatTitle.textContent = `💬 ${roomName ? `${roomName} 聊天室` : '大廳聊天室'}`; },
+    setScope(roomName) {
+      nicknameMap.clear();
+      messages = [];
+      els.chatTitle.textContent = `💬 ${roomName ? `${roomName} 聊天室` : '大廳聊天室'}`;
+    },
   };
 }

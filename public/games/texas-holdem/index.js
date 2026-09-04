@@ -1,5 +1,5 @@
 import { escapeHtml } from '/ui.js';
-import { cardHTML, seatsHTML, resultHTML, winnersHTML } from '/games/texas-holdem/view.js';
+import { cardHTML, seatsHTML, resultHTML, winnersHTML, logLineHTML } from '/games/texas-holdem/view.js';
 
 const NOTIFY_GAIN = 0.3;
 const NOTIFY_FREQUENCY = 800;
@@ -97,7 +97,7 @@ export function mount({ container, role, you, room, send, sendRaw, notifyTurn })
       view.communityCards.map((c) => cardHTML(c)).join('') ||
       '<span style="color:rgba(255,255,255,0.4)">尚未翻牌</span>';
     $seats.innerHTML = seatsHTML(view, you.id);
-    $log.innerHTML = view.log.map((l) => escapeHtml(l)).join('<br/>');
+    $log.innerHTML = view.log.map((l) => logLineHTML(l, view.players)).join('<br/>');
     $log.scrollTop = $log.scrollHeight;
 
     if (view.lastResult) {
@@ -223,7 +223,7 @@ export function mount({ container, role, you, room, send, sendRaw, notifyTurn })
   function renderHistory(view) {
     if (!view.handHistory || view.handHistory.length === 0) { $history.innerHTML = '<em>尚無紀錄</em>'; return; }
     $history.innerHTML = view.handHistory
-      .map(h => `<div>第 ${h.handNumber} 手：${winnersHTML(h.result?.winners || []) || '—'}</div>`)
+      .map(h => `<div>第 ${h.handNumber} 手：${winnersHTML(h.result?.winners || [], view.players) || '—'}</div>`)
       .join('');
   }
 

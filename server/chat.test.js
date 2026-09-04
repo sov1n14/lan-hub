@@ -9,8 +9,12 @@ function fakeClient(id) {
   clients.set(id, c);
   return c;
 }
-const chats = (c) => c.ws.out.filter((m) => m.type === 'chat').map((m) => m.system ? `*${m.text}` : `${m.from}:${m.text}`);
-const lastHistory = (c) => c.ws.out.filter((m) => m.type === 'chat_history').at(-1).messages.map((m) => m.system ? `*${m.text}` : `${m.from}:${m.text}`);
+function fmtChat(m) {
+  if (m.system) { const who = m.fromNickname || (m.fromId ? m.fromId.toUpperCase() : ''); return `*${who ? who + ' ' : ''}${m.text}`; }
+  return `${m.from}:${m.text}`;
+}
+const chats = (c) => c.ws.out.filter((m) => m.type === 'chat').map(fmtChat);
+const lastHistory = (c) => c.ws.out.filter((m) => m.type === 'chat_history').at(-1).messages.map(fmtChat);
 
 test('room chat reaches players and spectators only; lobby chat reaches lobby only', () => {
   clients.clear(); rooms.clear();

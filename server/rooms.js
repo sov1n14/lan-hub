@@ -72,8 +72,19 @@ export function pushChat(room, entry) {
   if (room) for (const id of roomMemberIds(room)) sendToClient(id, entry);
   else for (const c of clients.values()) if (!c.roomId) send(c.ws, entry);
 }
-export function systemChat(room, text) {
-  pushChat(room, { type: 'chat', system: true, text, ts: Date.now() });
+export function systemChat(room, text, fromId = null) {
+  pushChat(room, { type: 'chat', system: true, fromId, text, ts: Date.now() });
+}
+export function resolvedChatHistory(room) {
+  return chatHistory(room).map(m => {
+    if (!m.fromId) return m;
+    const nick = room
+      ? (room.players.get(m.fromId)?.nickname ?? room.spectators.get(m.fromId)?.nickname ?? clients.get(m.fromId)?.nickname)
+      : clients.get(m.fromId)?.nickname;
+    return m.system
+      ? { ...m, fromNickname: nick || null }
+      : { ...m, from: nick || m.from };
+  });
 }
 
 export function broadcastGameState(room) {
@@ -160,7 +171,7 @@ export function transferHost(room) {
   room.hostNickname = nh.nickname;
   nh.role = 'host';
   sendToClient(newHostId, { type: 'promoted_to_host' });
-  systemChat(room, `${nh.nickname} 成為新房主`);
+  systemChat(room, '成為新房主', newHostId);
   return true;
 }
 
@@ -170,7 +181,6 @@ export function leaveCurrentRoom(client, opts = {}) {
   const wasRole = client.role;
   client.role = null;
   if (!room) return;
-  const name = displayName(room, client);
 
   if (wasRole === 'player' || wasRole === 'host') {
     room.players.delete(client.id);
@@ -178,7 +188,7 @@ export function leaveCurrentRoom(client, opts = {}) {
   } else if (wasRole === 'spectator') {
     room.spectators.delete(client.id);
   }
-  systemChat(room, `${name} ${opts.disconnect ? '離線了' : '離開了房間'}`);
+  systemChat(room, opts.disconnect ? '離線了' : '離開了房間', client.id);
 
   if (wasRole === 'host' && !transferHost(room)) {
     closeRoom(room, opts.disconnect ? '房主已離線，沒有其他玩家可接手，房間關閉' : '房主已離開，沒有其他玩家可接手，房間關閉');
@@ -222,7 +232,7 @@ export function handleReconnectRoom(client) {
     client.roomId = roomId; client.role = 'player'; client.nickname = nickname;
     if (room.gameState) addPlayer(room.gameState, client.id, nickname, saved.chips);
     send(client.ws, { type: 'room_joined', roomId, role: 'player', you: { id: client.id, nickname }, room: roomSummary(room) });
-    systemChat(room, `${nickname} 重新連線`);
+    systemChat(room, '重新連線', client.id);
     broadcastRoomRoster(room);
     if (room.gameState && room.started) broadcastGameState(room);
     broadcastLobby();

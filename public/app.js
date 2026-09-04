@@ -129,7 +129,11 @@ function handleServerMessage(msg) {
       break;
     case 'roster':
       updateRoomHeader(msg.room);
+      chat.updateNicknames([...(msg.players || []), ...(msg.spectators || [])]);
       routeToGame(msg);
+      break;
+    case 'nickname_changed':
+      chat.updateNicknames([{ id: msg.id, nickname: msg.nickname }]);
       break;
     case 'error':
       showToast(msg.message, { error: true });

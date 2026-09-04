@@ -4,7 +4,7 @@ import {
   broadcastLobby, broadcastRoomRoster, broadcastGameState,
   clearActionTimer, checkTimers,
   uniqueDisplayName, closeRoom, leaveCurrentRoom, transferHost,
-  displayName, chatHistory, pushChat, systemChat,
+  displayName, pushChat, systemChat, resolvedChatHistory,
 } from './rooms.js';
 import { createGame, addPlayer, removePlayer, sitOut, startHand, applyAction, rebuy, STARTING_CHIPS, BIG_BLIND } from './holdem/engine.js';
 
@@ -27,6 +27,10 @@ function handleSetNickname(client, msg) {
     broadcastRoomRoster(room);
     if (room.gameState) broadcastGameState(room);
     broadcastLobby();
+  } else {
+    for (const c of clients.values()) {
+      if (!c.roomId) send(c.ws, { type: 'nickname_changed', id: client.id, nickname });
+    }
   }
 }
 
@@ -78,7 +82,7 @@ function handleJoinRoom(client, msg) {
   }
   client.roomId = room.id; client.role = role;
   send(client.ws, { type: 'room_joined', roomId: room.id, role, you: { id: client.id, nickname }, room: roomSummary(room) });
-  systemChat(room, `${nickname} ${role === 'spectator' ? '進來旁觀' : '加入了房間'}`);
+  systemChat(room, role === 'spectator' ? '進來旁觀' : '加入了房間', client.id);
   broadcastRoomRoster(room);
   if (room.gameState) broadcastGameState(room);
   broadcastLobby();
@@ -185,7 +189,7 @@ function handleChat(client, msg) {
 }
 
 function handleChatHistory(client, _msg) {
-  send(client.ws, { type: 'chat_history', messages: chatHistory(rooms.get(client.roomId)) });
+  send(client.ws, { type: 'chat_history', messages: resolvedChatHistory(rooms.get(client.roomId)) });
 }
 
 const MESSAGE_HANDLERS = {

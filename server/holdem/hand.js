@@ -50,7 +50,7 @@ export function endHandByFold(state) {
   winner.chips += pot;
   state.stage = 'hand_over';
   state.lastResult = { winners: [{ id: winner.id, nickname: winner.nickname, amount: pot, hand: null }], pots: [{ amount: pot, eligible: [winner.id] }], reveal: [] };
-  log(state, `${winner.nickname} 獲勝，贏得 ${pot} 籌碼（其他人已蓋牌）`);
+  log(state, winner.id, `獲勝，贏得 ${pot} 籌碼（其他人已蓋牌）`);
   state.handHistory.push({ handNumber: state.handNumber, result: state.lastResult });
   if (state.handHistory.length > HAND_HISTORY_CAP) state.handHistory.shift();
 }
@@ -107,7 +107,7 @@ function showdown(state) {
     pots: pots.map((p) => ({ amount: p.amount, eligible: p.eligible })),
     reveal: [...evals.entries()].map(([id, e]) => ({ id, evaluation: e.name })),
   };
-  log(state, `攤牌！${winners.map((w) => `${w.nickname} +${w.amount}(${w.hand})`).join('、')}`);
+  log(state, null, '攤牌！');
   state.handHistory.push({ handNumber: state.handNumber, result: state.lastResult });
   if (state.handHistory.length > HAND_HISTORY_CAP) state.handHistory.shift();
 }
@@ -125,17 +125,17 @@ export function applyAction(state, playerId, action, amount = 0) {
   switch (action) {
     case 'fold':
       p.folded = true;
-      log(state, `${p.nickname} 蓋牌`);
+      log(state, p.id, '蓋牌');
       break;
     case 'check':
       if (toCall > 0) return { ok: false, error: '目前有注要跟，不能過牌' };
-      log(state, `${p.nickname} 過牌`);
+      log(state, p.id, '過牌');
       break;
     case 'call': {
       const pay = Math.min(toCall, p.chips);
       p.chips -= pay; p.betThisRound += pay; p.betThisHand += pay;
       if (p.chips === 0) p.allIn = true;
-      log(state, `${p.nickname} 跟注 ${pay}${p.allIn ? '（全下）' : ''}`);
+      log(state, p.id, `跟注 ${pay}${p.allIn ? '（全下）' : ''}`);
       break;
     }
     case 'bet':
@@ -161,7 +161,7 @@ export function applyAction(state, playerId, action, amount = 0) {
         }
         state.currentBet = total;
       }
-      log(state, `${p.nickname} ${action === 'bet' ? '下注' : '加碼到'} ${total}${p.allIn ? '（全下）' : ''}`);
+      log(state, p.id, `${action === 'bet' ? '下注' : '加碼到'} ${total}${p.allIn ? '（全下）' : ''}`);
       break;
     }
     default:

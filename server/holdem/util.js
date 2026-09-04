@@ -3,8 +3,8 @@
 export const LOG_CAP = 60;
 export const HAND_HISTORY_CAP = 20;
 
-export function log(state, msg) {
-  state.log.push(msg);
+export function log(state, id, text) {
+  state.log.push({ id, text });
   if (state.log.length > LOG_CAP) state.log.shift();
 }
 
